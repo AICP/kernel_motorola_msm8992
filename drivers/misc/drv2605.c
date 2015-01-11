@@ -1204,13 +1204,11 @@ static ssize_t pwmvalue_store(struct device *dev,
 
 static DEVICE_ATTR(pwmvalue, (S_IWUSR|S_IRUGO), pwmvalue_show, pwmvalue_store);
 
-
 static int drv260x_init(void)
 {
 	int reval = -ENOMEM;
 
-    vibe_strength = REAL_TIME_PLAYBACK_STRENGTH;
-
+	vibe_strength = REAL_TIME_PLAYBACK_STRENGTH;
 	drv260x = kzalloc(sizeof(struct drv260x), GFP_KERNEL);
 	if (!drv260x) {
 		printk(KERN_ALERT
