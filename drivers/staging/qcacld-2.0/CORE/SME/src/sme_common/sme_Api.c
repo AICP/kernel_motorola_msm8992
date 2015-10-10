@@ -444,6 +444,8 @@ tSmeCmd *smeGetCommandBuffer( tpAniSirGlobal pMac )
             }
             pEntry = csrLLNext( &pMac->sme.smeCmdPendingList, pEntry, LL_ACCESS_NOLOCK );
         }
+        /* Increament static variable so that it prints pending command only once*/
+        smeCommandQueueFull++;
         csrLLUnlock(&pMac->sme.smeCmdPendingList);
 
         idx = 1;
@@ -11620,19 +11622,19 @@ VOS_STATUS sme_SelectCBMode(tHalHandle hHal, eCsrPhyMode eCsrPhyMode, tANI_U8 ch
    {
       if (pMac->roam.configParam.channelBondingMode5GHz) {
           if ( channel== 36 || channel == 52 || channel == 100 ||
-                channel == 116 || channel == 149 || channel == 132)
+                channel == 116 || channel == 149 )
           {
              smeConfig.csrConfig.channelBondingMode5GHz =
                 eCSR_INI_QUADRUPLE_CHANNEL_20MHZ_LOW_40MHZ_LOW;
           }
           else if ( channel == 40 || channel == 56 || channel == 104 ||
-                channel == 120 || channel == 153 || channel == 136)
+                channel == 120 || channel == 153 )
           {
              smeConfig.csrConfig.channelBondingMode5GHz =
                 eCSR_INI_QUADRUPLE_CHANNEL_20MHZ_HIGH_40MHZ_LOW;
           }
           else if ( channel == 44 || channel == 60 || channel == 108 ||
-                channel == 124 || channel == 157 || channel == 140)
+                channel == 124 || channel == 157 )
           {
              smeConfig.csrConfig.channelBondingMode5GHz =
                 eCSR_INI_QUADRUPLE_CHANNEL_20MHZ_LOW_40MHZ_HIGH;
@@ -11643,10 +11645,20 @@ VOS_STATUS sme_SelectCBMode(tHalHandle hHal, eCsrPhyMode eCsrPhyMode, tANI_U8 ch
              smeConfig.csrConfig.channelBondingMode5GHz =
                 eCSR_INI_QUADRUPLE_CHANNEL_20MHZ_HIGH_40MHZ_HIGH;
           }
-          else if ( channel == 165 )
+          else if ( channel == 165 || channel == 140 )
           {
              smeConfig.csrConfig.channelBondingMode5GHz =
                 eCSR_INI_SINGLE_CHANNEL_CENTERED;
+          }
+          else if ( channel == 132 )
+          {
+             smeConfig.csrConfig.channelBondingMode5GHz =
+                eCSR_INI_DOUBLE_CHANNEL_LOW_PRIMARY;
+          }
+          else if ( channel == 136 )
+          {
+             smeConfig.csrConfig.channelBondingMode5GHz =
+                eCSR_INI_DOUBLE_CHANNEL_HIGH_PRIMARY;
           }
       }
       /*TODO: Set HT40+ / HT40- for channel 5-7 based on ACS */
@@ -11661,6 +11673,7 @@ VOS_STATUS sme_SelectCBMode(tHalHandle hHal, eCsrPhyMode eCsrPhyMode, tANI_U8 ch
              smeConfig.csrConfig.channelBondingMode24GHz =
                 eCSR_INI_SINGLE_CHANNEL_CENTERED;
       }
+
    }
 #endif
 
@@ -11671,7 +11684,7 @@ VOS_STATUS sme_SelectCBMode(tHalHandle hHal, eCsrPhyMode eCsrPhyMode, tANI_U8 ch
           if ( channel== 40 || channel == 48 || channel == 56 ||
                 channel == 64 || channel == 104 || channel == 112 ||
                 channel == 120 || channel == 128 || channel == 136 ||
-                channel == 153 || channel == 161 || channel == 144)
+                channel == 153 || channel == 161 )
           {
              smeConfig.csrConfig.channelBondingMode5GHz =
                 eCSR_INI_DOUBLE_CHANNEL_HIGH_PRIMARY;
@@ -11679,12 +11692,12 @@ VOS_STATUS sme_SelectCBMode(tHalHandle hHal, eCsrPhyMode eCsrPhyMode, tANI_U8 ch
           else if ( channel== 36 || channel == 44 || channel == 52 ||
                 channel == 60 || channel == 100 || channel == 108 ||
                 channel == 116 || channel == 124 || channel == 132 ||
-                channel == 149 || channel == 157 || channel == 140)
+                channel == 149 || channel == 157 )
           {
              smeConfig.csrConfig.channelBondingMode5GHz =
                 eCSR_INI_DOUBLE_CHANNEL_LOW_PRIMARY;
           }
-          else if ( channel == 165 )
+          else if ( channel == 165 || channel == 140)
           {
              smeConfig.csrConfig.channelBondingMode5GHz =
                 eCSR_INI_SINGLE_CHANNEL_CENTERED;
@@ -13168,7 +13181,7 @@ void sme_StatsExtRegisterCallback(tHalHandle hHal, StatsExtCallback callback)
 
   \return eHalStatus
 ******************************************************************************/
-eHalStatus sme_StatsExtRequest(tANI_U8 session_id, tpStatsExtRequestReq input)
+eHalStatus sme_StatsExtRequest(tANI_U8 session_id, const tpStatsExtRequestReq input)
 {
     vos_msg_t msg;
     tpStatsExtRequest data;
@@ -14301,33 +14314,4 @@ uint8_t sme_is_any_session_in_connected_state(tHalHandle h_hal)
 bool smeNeighborRoamIsHandoffInProgress(tHalHandle hHal, tANI_U8 sessionId)
 {
 	return csrNeighborRoamIsHandoffInProgress(PMAC_STRUCT(hHal), sessionId);
-}
-
-/**
- * sme_disable_non_fcc_channel() - non-fcc channel disable request
- * @hal: HAL pointer
- * @fcc_constraint: true: disable, false; enable
- *
- * Return: eHalStatus.
- */
-eHalStatus sme_disable_non_fcc_channel(tHalHandle hal, bool fcc_constraint)
-{
-	eHalStatus status = eHAL_STATUS_SUCCESS;
-	tpAniSirGlobal mac_ptr  = PMAC_STRUCT(hal);
-
-	status = sme_AcquireGlobalLock(&mac_ptr->sme);
-
-	if (eHAL_STATUS_SUCCESS == status) {
-
-		if (fcc_constraint != mac_ptr->scan.fcc_constraint) {
-			mac_ptr->scan.fcc_constraint = fcc_constraint;
-
-			/* update the channel list to the firmware */
-			status = csrUpdateChannelList(mac_ptr);
-		}
-
-		sme_ReleaseGlobalLock(&mac_ptr->sme);
-	}
-
-	return status;
 }

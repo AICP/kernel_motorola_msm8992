@@ -6497,8 +6497,6 @@ static int wlan_hdd_cfg80211_start_bss(hdd_adapter_t *pHostapdAdapter,
 
     pSapEventCallback = hdd_hostapd_SAPEventCB;
 
-    (WLAN_HDD_GET_AP_CTX_PTR(pHostapdAdapter))->dfs_cac_block_tx = VOS_TRUE;
-
     status = WLANSAP_StartBss(
 #ifdef WLAN_FEATURE_MBSSID
                  WLAN_HDD_GET_SAP_CTX_PTR(pHostapdAdapter),
@@ -11167,7 +11165,6 @@ static int __wlan_hdd_cfg80211_disconnect( struct wiphy *wiphy,
     int status;
     hdd_station_ctx_t *pHddStaCtx = WLAN_HDD_GET_STATION_CTX_PTR(pAdapter);
     hdd_context_t *pHddCtx = WLAN_HDD_GET_CTX(pAdapter);
-    eConnectionState connState;
 #ifdef FEATURE_WLAN_TDLS
     tANI_U8 staIdx;
 #endif
@@ -11194,8 +11191,6 @@ static int __wlan_hdd_cfg80211_disconnect( struct wiphy *wiphy,
         eCsrRoamDisconnectReason reasonCode =
                                    eCSR_DISCONNECT_REASON_UNSPECIFIED;
         hdd_scaninfo_t *pScanInfo;
-
-        connState = pHddStaCtx->conn_info.connState;
         switch (reason) {
         case WLAN_REASON_MIC_FAILURE:
              reasonCode = eCSR_DISCONNECT_REASON_MIC_ERROR;
@@ -11236,6 +11231,7 @@ static int __wlan_hdd_cfg80211_disconnect( struct wiphy *wiphy,
                                eCSR_SCAN_ABORT_DEFAULT);
         }
 
+        wlan_hdd_cleanup_remain_on_channel_ctx(pAdapter);
 #ifdef FEATURE_WLAN_TDLS
         /* First clean up the tdls peers if any */
         for (staIdx = 0 ; staIdx < pHddCtx->max_num_tdls_sta; staIdx++) {
@@ -11258,7 +11254,6 @@ static int __wlan_hdd_cfg80211_disconnect( struct wiphy *wiphy,
         status = wlan_hdd_disconnect(pAdapter, reasonCode);
         if (0 != status) {
             hddLog(VOS_TRACE_LEVEL_ERROR, FL("failure, returned %d"), status);
-            pHddStaCtx->conn_info.connState = connState;
             return -EINVAL;
         }
     } else {
@@ -13007,7 +13002,7 @@ static int __wlan_hdd_cfg80211_sched_scan_start(struct wiphy *wiphy,
     tpSirPNOScanReq pPnoRequest = NULL;
     hdd_context_t *pHddCtx;
     tHalHandle hHal;
-    v_U32_t i, indx, num_ch, tempInterval, j;
+    v_U32_t i, indx, num_ch, j;
     u8 valid_ch[WNI_CFG_VALID_CHANNEL_LIST_LEN] = {0};
     u8 channels_allowed[WNI_CFG_VALID_CHANNEL_LIST_LEN] = {0};
     v_U32_t num_channels_allowed = WNI_CFG_VALID_CHANNEL_LIST_LEN;
@@ -13193,7 +13188,8 @@ static int __wlan_hdd_cfg80211_sched_scan_start(struct wiphy *wiphy,
         memcpy(&pPnoRequest->p5GProbeTemplate, request->ie,
                 pPnoRequest->us5GProbeTemplateLen);
     }
-
+    //BEGIN MOT a19110 IKDREL3KK-2175 PNO enhancement
+#if 0
     /* Driver gets only one time interval which is hard coded in
      * supplicant for 10000ms. Taking power consumption into account 6 timers
      * will be used, Timer value is increased exponentially i.e 10,20,40,
@@ -13222,6 +13218,13 @@ static int __wlan_hdd_cfg80211_sched_scan_start(struct wiphy *wiphy,
     }
     //Repeat last timer until pno disabled.
     pPnoRequest->scanTimers.aTimerValues[i-1].uTimerRepeat = 0;
+#endif
+    pPnoRequest->scanTimers.ucScanTimersCount = 2;
+    pPnoRequest->scanTimers.aTimerValues[0].uTimerRepeat = 7;
+    pPnoRequest->scanTimers.aTimerValues[0].uTimerValue = 45;
+    pPnoRequest->scanTimers.aTimerValues[1].uTimerRepeat = 0;
+    pPnoRequest->scanTimers.aTimerValues[1].uTimerValue = 480;
+    //END IKDREL3KK-2175
 
     pPnoRequest->modePNO = SIR_PNO_MODE_IMMEDIATE;
 
@@ -13846,6 +13849,21 @@ static int __wlan_hdd_cfg80211_tdls_oper(struct wiphy *wiphy,
                     {
                         tANI_U8 i;
 
+                        if (pTdlsPeer->is_responder == 0)
+                        {
+                            v_U8_t staId = (v_U8_t)pTdlsPeer->staId;
+
+                            wlan_hdd_tdls_timer_restart(pAdapter,
+                                                        &pTdlsPeer->initiatorWaitTimeoutTimer,
+                                                       WAIT_TIME_TDLS_INITIATOR);
+                            /*
+                             * Suspend initiator TX until it receives direct
+                             * packet from the responder or
+                             * WAIT_TIME_TDLS_INITIATOR timer expires
+                             */
+                            WLANTL_SuspendDataTx( (WLAN_HDD_GET_CTX(pAdapter))->pvosContext,
+                                                   &staId, NULL);
+                        }
                         vos_mem_zero(&smeTdlsPeerStateParams,
                                      sizeof(tSmeTdlsPeerStateParams));
 

@@ -223,7 +223,7 @@ CONFIG_QCA_SINGLE_BINARY_SUPPORT := 0
 CONFIG_TARGET_RAMDUMP_AFTER_KERNEL_PANIC := 1
 
 #Flag to enable/disable secure firmware feature
-CONFIG_FEATURE_SECURE_FIRMWARE := 0
+CONFIG_FEATURE_SECURE_FIRMWARE := 1
 
 #Flag to enable Stats Ext implementation
 CONFIG_FEATURE_STATS_EXT := 1
@@ -237,6 +237,12 @@ HAVE_CFG80211 := 1
 else
 HAVE_CFG80211 := 0
 endif
+endif
+
+ifeq ($(BOARD_PLATFORM),msm8994)
+CONFIG_MSM8994 := 1
+else
+CONFIG_MSM8994 := 0
 endif
 
 ############ COMMON ############
@@ -1037,6 +1043,8 @@ endif
 # enable the MAC Address auto-generation feature
 CDEFINES += -DWLAN_AUTOGEN_MACADDR_FEATURE
 
+CDEFINES += -DMOTO_UTAGS_MAC
+
 ifeq ($(CONFIG_WLAN_FEATURE_11W),y)
 CDEFINES += -DWLAN_FEATURE_11W
 endif
@@ -1120,7 +1128,7 @@ CDEFINES += -DCONFIG_HL_SUPPORT
 endif
 
 #Enable FW logs through ini
-CDEFINES += -DCONFIG_FW_LOGS_BASED_ON_INI
+#CDEFINES += -DCONFIG_FW_LOGS_BASED_ON_INI
 
 #Enable pci read/write config functions
 ifeq ($(CONFIG_ATH_PCI), 1)
@@ -1204,9 +1212,6 @@ ifeq ($(CONFIG_SMP),y)
 CDEFINES += -DQCA_CONFIG_SMP
 endif
 
-#Enable Channel Matrix restriction for all targets
-CDEFINES += -DWLAN_ENABLE_CHNL_MATRIX_RESTRICTION
-
 #features specific to mdm9630
 ifeq ($(CONFIG_ARCH_MDM9630), y)
 
@@ -1265,6 +1270,10 @@ ifeq ($(CONFIG_FEATURE_SECURE_FIRMWARE), 1)
 CDEFINES += -DFEATURE_SECURE_FIRMWARE
 endif
 
+ifeq ($(CONFIG_MSM8994), 1)
+CDEFINES += -DCONFIG_MSM8994
+endif
+
 #Enable/disable FW hash check for secure firmware feature
 ifeq ($(CONFIG_CLD_DEBUG), y)
 CDEFINES += -DFEATURE_FW_HASH_CHECK
@@ -1273,7 +1282,7 @@ endif
 ifeq ($(CONFIG_ATH_PCIE_ACCESS_DEBUG), 1)
 CDEFINES += -DCONFIG_ATH_PCIE_ACCESS_DEBUG
 endif
-
+CDEFINES += -DCONFIG_FW_LOGS_BASED_ON_INI
 #Flag to enable/disable WLAN D0-WOW
 ifeq ($(CONFIG_PCI_MSM), y)
 CDEFINES += -DFEATURE_WLAN_D0WOW
@@ -1293,6 +1302,10 @@ endif
 # Enable feature support fo Linux version QCMBR
 ifeq ($(CONFIG_LINUX_QCMBR),y)
 CDEFINES += -DLINUX_QCMBR
+endif
+
+ifneq ($(CNSS_LOCALE),)
+CDEFINES += -DCNSS_LOCALE_$(CNSS_LOCALE)
 endif
 
 KBUILD_CPPFLAGS += $(CDEFINES)

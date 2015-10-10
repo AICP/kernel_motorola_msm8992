@@ -3802,7 +3802,7 @@ tANI_U32 sme_GetChannelBondingMode24G(tHalHandle hHal);
 
 typedef struct sStatsExtRequestReq {
   tANI_U32 request_data_len;
-  tANI_U8* request_data;
+  const tANI_U8* request_data;
 } tStatsExtRequestReq, *tpStatsExtRequestReq;
 
 typedef void (* StatsExtCallback)(void *, tStatsExtEvent *);
@@ -4126,8 +4126,5 @@ eHalStatus sme_update_nss(tHalHandle h_hal, uint8_t nss);
 uint8_t    sme_is_any_session_in_connected_state(tHalHandle h_hal);
 
 bool smeNeighborRoamIsHandoffInProgress(tHalHandle hHal, tANI_U8 sessionId);
-
-eHalStatus sme_disable_non_fcc_channel(tHalHandle hHal,
-				       bool fcc_constraint);
 
 #endif //#if !defined( __SME_API_H )

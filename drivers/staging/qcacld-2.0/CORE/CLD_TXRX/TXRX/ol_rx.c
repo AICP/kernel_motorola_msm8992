@@ -72,6 +72,13 @@
        vdev->osif_rx(vdev->osif_dev, msdus)
 #endif /* OSIF_NEED_RX_PEER_ID */
 
+extern int dumpEnable;
+
+void ol_rx_reorder_display(
+    struct ol_txrx_pdev_t *pdev,
+    struct ol_txrx_peer_t *peer,
+    unsigned tid);
+
 #ifdef HTT_RX_RESTORE
 
 static void ol_rx_restore_handler(struct work_struct *htt_rx)
@@ -1075,7 +1082,7 @@ ol_rx_in_order_indication_handler(
     if (peer) {
         vdev = peer->vdev;
     } else {
-        TXRX_PRINT(TXRX_PRINT_LEVEL_INFO2,
+        TXRX_PRINT(TXRX_PRINT_LEVEL_ERR,
                    "%s: Couldn't find peer from ID 0x%x\n", __FUNCTION__,
                    peer_id);
         while (head_msdu) {
