@@ -651,14 +651,9 @@ end:
 
 static int hdd_netdev_notifier_call(struct notifier_block * nb,
                                          unsigned long state,
-                                         void *data)
+                                         void *ndev)
 {
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,11,0))
-   struct netdev_notifier_info *dev_notif_info = data;
-   struct net_device *dev = dev_notif_info->dev;
-#else
-   struct net_device *dev = data;
-#endif
+   struct net_device *dev = ndev;
    hdd_adapter_t *pAdapter = WLAN_HDD_GET_PRIV_PTR(dev);
    hdd_context_t *pHddCtx;
 #ifdef WLAN_BTAMP_FEATURE
@@ -670,15 +665,11 @@ static int hdd_netdev_notifier_call(struct notifier_block * nb,
       return NOTIFY_DONE;
 
    if ((pAdapter->magic != WLAN_HDD_ADAPTER_MAGIC) &&
-      (pAdapter->dev != dev)) {
-      hddLog(LOGE, FL("device adapter is not matching!!!"));
+      (pAdapter->dev != dev))
       return NOTIFY_DONE;
-   }
 
-   if (!dev->ieee80211_ptr) {
-      hddLog(LOGE, FL("ieee80211_ptr is NULL!!!"));
+   if (!dev->ieee80211_ptr)
       return NOTIFY_DONE;
-   }
 
    pHddCtx = WLAN_HDD_GET_CTX(pAdapter);
    if (NULL == pHddCtx)
@@ -3496,13 +3487,13 @@ static int hdd_set_app_type2_parser(hdd_adapter_t *pAdapter,
 
     memset(&params, 0, sizeof(tSirAppType2Params));
 
-    ret = sscanf(arg, "%17s %16s %x %x %x %u %u %hu %hu %u %u %u %u %u %u",
+    ret = sscanf(arg, "%17s %16s %x %x %x %u %u %u %u %u %u %u %u %u %u",
         mac_addr, rc4_key, (unsigned int *)&params.ip_id,
         (unsigned int*)&params.ip_device_ip,
         (unsigned int*)&params.ip_server_ip,
         (unsigned int*)&params.tcp_seq, (unsigned int*)&params.tcp_ack_seq,
-        (uint16_t *)&params.tcp_src_port,
-        (uint16_t *)&params.tcp_dst_port,
+        (unsigned int*)&params.tcp_src_port,
+        (unsigned int*)&params.tcp_dst_port,
         (unsigned int*)&params.keepalive_init,
         (unsigned int*)&params.keepalive_min,
         (unsigned int*)&params.keepalive_max,
@@ -4013,41 +4004,6 @@ int hdd_set_miracast_mode(hdd_adapter_t *pAdapter, tANI_U8 *command)
     hddLog(VOS_TRACE_LEVEL_INFO, "%s: miracast mode %hu", __func__, filterType);
     pMac->fMiracastSessionPresent = filterType;
     return 0;
-}
-
-/**
- * drv_cmd_set_fcc_channel() - handle fcc constraint request
- * @hdd_ctx: HDD context
- * @cmd: command ptr
- * @cmd_len: command len
- *
- * Return: status
- */
-static int drv_cmd_set_fcc_channel(hdd_context_t *hdd_ctx, uint8_t *cmd,
-                                   uint8_t cmd_len)
-{
-	uint8_t *value;
-	uint8_t fcc_constraint;
-	eHalStatus status;
-	int ret = 0;
-
-	value =  cmd + cmd_len + 1;
-
-	ret = kstrtou8(value, 10, &fcc_constraint);
-	if ((ret < 0) || (fcc_constraint > 1)) {
-		/*
-		 *  If the input value is greater than max value of datatype,
-		 *  then also it is a failure
-		 */
-		hddLog(LOGE, FL("value out of range"));
-		return -EINVAL;
-	}
-
-	status = sme_disable_non_fcc_channel(hdd_ctx->hHal, !fcc_constraint);
-	if (status != eHAL_STATUS_SUCCESS)
-		ret = -EPERM;
-
-	return ret;
 }
 
 static int hdd_driver_command(hdd_adapter_t *pAdapter,
@@ -5351,8 +5307,7 @@ static int hdd_driver_command(hdd_adapter_t *pAdapter,
                                        &modProfileFields);
                sme_RoamReassoc(hHal, pAdapter->sessionId,
                             NULL, modProfileFields, &roamId, 1);
-               ret = 0;
-               goto exit;
+               return 0;
            }
 
            /* Check channel number is a valid channel number */
@@ -5361,9 +5316,7 @@ static int hdd_driver_command(hdd_adapter_t *pAdapter,
            {
                hddLog(VOS_TRACE_LEVEL_ERROR,
                       "%s: Invalid Channel [%d] \n", __func__, channel);
-
-               ret = -EINVAL;
-               goto exit;
+               return -EINVAL;
            }
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
            if (pHddCtx->cfg_ini->isRoamOffloadEnabled) {
@@ -6131,48 +6084,23 @@ static int hdd_driver_command(hdd_adapter_t *pAdapter,
            int set_value;
            /* Move pointer to point the string */
            value += 14;
-           ret = sscanf(value, "%d", &set_value);
-           if (ret != 1) {
-               VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_ERROR,
-                     "Wrong value is given for hdd_set_tdls_offchannel");
-               ret = -EINVAL;
-               goto exit;
-           }
-
+           sscanf(value, "%d", &set_value);
            VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO,
-                FL("Tdls offchannel num: %d"), set_value);
+                     FL("Tdls offchannel num: %d"),
+                     set_value);
            ret = hdd_set_tdls_offchannel(pHddCtx, set_value);
        } else if (strncmp(command, "TDLSSCAN", 8) == 0) {
            uint8_t *value = command;
            int set_value;
            /* Move pointer to point the string */
            value += 8;
-           ret = sscanf(value, "%d", &set_value);
-           if (ret != 1) {
-               VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_ERROR,
-                     "Wrong value is given for tdls_scan_type");
-               ret = -EINVAL;
-               goto exit;
-           }
+           sscanf(value, "%d", &set_value);
            hddLog(LOG1, FL("Tdls scan type val: %d"),
                   set_value);
            ret = hdd_set_tdls_scan_type(pHddCtx, set_value);
        }
 #endif
-       else if (strncasecmp(command, "SET_FCC_CHANNEL", 15) == 0) {
-           /*
-            * this command wld be called by user-space when it detects WLAN
-            * ON after airplane mode is set. When APM is set, WLAN turns off.
-            * But it can be turned back on. Otherwise; when APM is turned back
-            * off, WLAN wld turn back on. So at that point the command is
-            * expected to come down. 0 means disable, 1 means enable. The
-            * constraint is removed when parameter 1 is set or different
-            * country code is set
-            */
-
-           ret = drv_cmd_set_fcc_channel(pHddCtx, command, 15);
-
-       } else {
+       else {
            MTRACE(vos_trace(VOS_MODULE_ID_HDD,
                             TRACE_CODE_HDD_UNSUPPORTED_IOCTL,
                             pAdapter->sessionId, 0));
@@ -12053,9 +11981,15 @@ int hdd_wlan_startup(struct device *dev, v_VOID_t *hif_sc)
 
    if ( VOS_STATUS_SUCCESS != hdd_update_mac_config( pHddCtx ) )
    {
-      hddLog(VOS_TRACE_LEVEL_WARN,
-             "%s: can't update mac config, using MAC from ini file",
+      hddLog(VOS_TRACE_LEVEL_FATAL,
+             "%s: can't update mac config, using MAC from serial number",
              __func__);
+      if ( VOS_STATUS_SUCCESS != hdd_update_mac_serial( pHddCtx ) )
+      {
+          hddLog(VOS_TRACE_LEVEL_FATAL,
+                 "%s: can't update mac from serial number,  using MAC from ini file",
+                 __func__);
+      }
    }
 
    {
@@ -13185,6 +13119,26 @@ tVOS_CONCURRENCY_MODE hdd_get_concurrency_mode ( void )
     hddLog(LOGE, "%s: Invalid context", __func__);
     return VOS_STA;
 }
+
+// BEGIN MOTOROLA IKJB42MAIN-274, dpn473, 01/02/2013, Add flag to disable/enable MCC mode
+v_U8_t hdd_get_mcc_mode( void )
+{
+    v_CONTEXT_t pVosContext = vos_get_global_context( VOS_MODULE_ID_HDD, NULL );
+    hdd_context_t *pHddCtx;
+
+    if (NULL != pVosContext)
+    {
+        pHddCtx = vos_get_context( VOS_MODULE_ID_HDD, pVosContext);
+        if (NULL != pHddCtx)
+        {
+            return (v_U8_t)pHddCtx->cfg_ini->enableMCC;
+        }
+    }
+    /* we are in an invalid state :( */
+    hddLog(LOGE, "%s: Invalid context", __func__);
+    return (v_U8_t)0;
+}
+// END IKJB42MAIN-274
 
 /* Decide whether to allow/not the apps power collapse.
  * Allow apps power collapse if we are in connected state.

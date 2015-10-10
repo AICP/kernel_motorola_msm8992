@@ -118,7 +118,7 @@
 #define HDD_FINISH_ULA_TIME_OUT         800
 #define HDD_SET_MCBC_FILTERS_TO_FW      1
 #define HDD_DELETE_MCBC_FILTERS_FROM_FW 0
-
+extern int dumpEnable;
 extern int wlan_hdd_cfg80211_update_band(struct wiphy *wiphy, eCsrBand eBand);
 static int ioctl_debug;
 module_param(ioctl_debug, int, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
@@ -241,6 +241,10 @@ static const hdd_freq_chan_map_t freq_chan_map[] = { {2412, 1}, {2417, 2},
 /* Private ioctl for packet power save */
 #define WE_PPS_5G_EBT                         83
 #define WE_SET_CTS_CBW                        84
+#define WE_SET_CHANNEL_RANGE                  85  // Motorola, IKDREL3KK-5698
+// The below one should always be the last entry
+// It will have a value of last sub_cmd + 1
+#define MAX_SUB_CMD                           86  // Motorola, IKDREL3KK-10418
 
 /* Private ioctls and their sub-ioctls */
 #define WLAN_PRIV_SET_NONE_GET_INT    (SIOCIWFIRSTPRIV + 1)
@@ -252,6 +256,7 @@ static const hdd_freq_chan_map_t freq_chan_map[] = { {2412, 1}, {2417, 2},
 /* 7 is unused */
 #define WE_GET_SAP_AUTO_CHANNEL_SELECTION 8
 #define WE_GET_CONCURRENCY_MODE 9
+#define WE_GET_MCC_MODE 10 /* MOTOROLA IKJB42MAIN-274 */
 #define WE_GET_NSS           11
 #define WE_GET_LDPC          12
 #define WE_GET_TX_STBC       13
@@ -4603,9 +4608,17 @@ static int iw_setint_getnone(struct net_device *dev, struct iw_request_info *inf
     hdd_wext_state_t  *pWextState =  WLAN_HDD_GET_WEXT_STATE_PTR(pAdapter);
     hdd_context_t     *pHddCtx = WLAN_HDD_GET_CTX(pAdapter);
     tSmeConfigParams smeConfig;
+    //BEGIN MOT a19110 IKDREL3KK-10418
+    int *value;
+    int sub_cmd, set_value, cmd_len;
+    int *tmp_value;
+    //END IKDREL3KK-10418
+    //BEGIN MOT a19110 IKDREL3KK-5698
+#if 0
     int *value = (int *)extra;
     int sub_cmd = value[0];
     int set_value = value[1];
+#endif
     int ret = 0; /* success */
     int enable_pbm, enable_mp;
 
@@ -4621,6 +4634,34 @@ static int iw_setint_getnone(struct net_device *dev, struct iw_request_info *inf
                                   "%s:LOGP in Progress. Ignore!!!", __func__);
         return -EBUSY;
     }
+
+    //BEGIN MOT a19110 IKDREL3KK-10418
+    tmp_value = (int *)extra;
+
+    // Copy from wrqu structure if it was a ioctl from Motorola code
+    if(tmp_value[0] < 0 || (tmp_value[0] >= MAX_SUB_CMD)) {
+        cmd_len = wrqu->data.length;
+        value = (int *) kmalloc(cmd_len+1, GFP_KERNEL);  // Motorola, IKHSS7-39028
+
+        if(value == NULL)
+            return -ENOMEM;
+
+        if(copy_from_user((char *) value, (char*)(wrqu->data.pointer), cmd_len)) {
+            hddLog(VOS_TRACE_LEVEL_FATAL, "%s -- copy_from_user --data pointer failed! bailing",
+                   __FUNCTION__);
+            kfree(value);
+            return -EFAULT;
+        }
+
+        sub_cmd = value[0];
+        set_value = value[1];
+        kfree(value);
+    } else {
+        value = (int *)extra;
+        sub_cmd = value[0];
+        set_value = value[1];
+    }
+    //END IKDREL3KK-10418
 
     switch(sub_cmd)
     {
@@ -5546,6 +5587,14 @@ static int iw_setint_getnone(struct net_device *dev, struct iw_request_info *inf
 	case WE_SET_TXRX_FWSTATS:
 	{
            hddLog(LOG1, "WE_SET_TXRX_FWSTATS val %d", set_value);
+#if 0
+           if (set_value == 9)
+               dumpEnable =1;
+           else if (set_value == 10)
+               dumpEnable = 0;
+           else
+#endif
+           dumpEnable = 0;
            ret = process_wma_set_command((int)pAdapter->sessionId,
 			   (int)WMA_VDEV_TXRX_FWSTATS_ENABLE_CMDID,
 			   set_value, VDEV_CMD);
@@ -5978,6 +6027,31 @@ static int iw_setint_getnone(struct net_device *dev, struct iw_request_info *inf
                             set_value, VDEV_CMD);
             break;
        }
+       //BEGIN MOT a19110 IKDREL3KK-5698
+       case WE_SET_CHANNEL_RANGE:
+       {
+           int startChannel, endChannel;
+
+           if (set_value == 3) {
+               startChannel = 149;
+               endChannel   = 161;
+           } else if (set_value == 2) {
+               startChannel = 100;
+               endChannel   = 144;
+           } else if (set_value == 1) {
+               startChannel = 36;
+               endChannel   = 64;
+           } else {
+               set_value = 0;
+               startChannel = 1;
+               endChannel   = 14;
+           }
+
+           ret = iw_softap_set_channel_range( dev, startChannel, endChannel, set_value);
+
+           break;
+       }
+       // END IKDREL3KK-5698
         default:
         {
            hddLog(LOGE, "%s: Invalid sub command %d", __func__, sub_cmd);
@@ -6179,6 +6253,13 @@ static int iw_setnone_getint(struct net_device *dev, struct iw_request_info *inf
            VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO, ("concurrency mode=%d"),*value);
            break;
         }
+        // BEGIN MOTOROLA IKJB42MAIN-274, dpn473, 01/02/2013, Add flag to disable/enable MCC mode
+        case WE_GET_MCC_MODE:
+        {
+            *value = (int)hdd_get_mcc_mode();
+            break;
+        }
+        // IKJB42MAIN-274
 
         case WE_GET_NSS:
         {
@@ -6652,8 +6733,12 @@ int iw_set_three_ints_getnone(struct net_device *dev,
                               union iwreq_data *wrqu, char *extra)
 {
     hdd_adapter_t *pAdapter = WLAN_HDD_GET_PRIV_PTR(dev);
-    int *value = (int *)extra;
-    int sub_cmd = value[0];
+    //BEGIN MOT a19110 IKSWL-15774 Ioctl from Mot code
+    int *value;
+    int sub_cmd, cmd_len;
+    int *tmp_value;
+    int *get_value = NULL;
+    //END IKSWL-15774
     int ret = 0;
 
     if ((WLAN_HDD_GET_CTX(pAdapter))->isLogpInProgress) {
@@ -6661,6 +6746,31 @@ int iw_set_three_ints_getnone(struct net_device *dev,
                                   "%s:LOGP in Progress. Ignore!!!", __func__);
         return -EBUSY;
     }
+
+    //BEGIN MOT a19110 IKSWL-15774 Ioctl from Mot code
+    tmp_value = (int *)extra;
+
+    // Copy from wrqu structure if it was a ioctl from Motorola code
+    if(tmp_value[0] < 0 || (tmp_value[0] >= MAX_SUB_CMD)) {
+        cmd_len = wrqu->data.length;
+        get_value = (int *) kmalloc(cmd_len+1, GFP_KERNEL);  // Motorola, IKHSS7-39028
+
+        if(get_value == NULL)
+            return -ENOMEM;
+
+        if(copy_from_user((char *) get_value, (char*)(wrqu->data.pointer), cmd_len)) {
+            hddLog(VOS_TRACE_LEVEL_FATAL, "%s -- copy_from_user --data pointer failed! bailing",
+                   __FUNCTION__);
+            kfree(get_value);
+            return -EFAULT;
+        }
+
+        value = (int *)get_value;
+    } else {
+        value = (int *)extra;
+    }
+        sub_cmd = value[0];
+    //END IKSWL-15774
 
     switch(sub_cmd) {
 
@@ -6677,6 +6787,12 @@ int iw_set_three_ints_getnone(struct net_device *dev,
        break;
 
     }
+
+    //BEGIN MOT a19110 IKSWL-15774 Ioctl from Mot code
+    if(get_value != NULL)
+        kfree(get_value);
+    //END IKSWL-15774
+
     return ret;
 }
 
@@ -10097,6 +10213,13 @@ static const struct iw_priv_args we_private_args[] = {
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1,
         0, "erx_dri_sample" },
 
+    //BEGIN MOT a19110 IKDREL3KK-5698
+    {   WE_SET_CHANNEL_RANGE,
+        IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1,
+        0,
+        "setChannelRange" },
+    //END IKDREL3KK-5698
+
     {   WLAN_PRIV_SET_NONE_GET_INT,
         0,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1,
@@ -10132,6 +10255,12 @@ static const struct iw_priv_args we_private_args[] = {
         0,
         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1,
         "getconcurrency" },
+
+    /* MOTOROLA IKJB42MAIN-274 */
+    {   WE_GET_MCC_MODE,
+         0,
+         IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1,
+         "getMccMode" },
 
     {   WE_GET_NSS,
         0,

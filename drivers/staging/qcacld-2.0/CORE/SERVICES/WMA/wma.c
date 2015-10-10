@@ -1370,8 +1370,6 @@ static int wma_peer_sta_kickout_event_handler(void *handle, u8 *event, u32 len)
 			return -EINVAL;
 		}
 
-		del_sta_ctx->is_tdls = true;
-		del_sta_ctx->vdev_id = vdev_id;
 		del_sta_ctx->staId = peer_id;
 		vos_mem_copy(del_sta_ctx->addr2, macaddr, IEEE80211_ADDR_LEN);
 		vos_mem_copy(del_sta_ctx->bssId, wma->interfaces[vdev_id].bssid,
@@ -1433,7 +1431,6 @@ static int wma_peer_sta_kickout_event_handler(void *handle, u8 *event, u32 len)
 		break;
 
 	    case WMI_PEER_STA_KICKOUT_REASON_INACTIVITY:
-		/* This could be for STA or SAP role */
 	    default:
 		break;
 	}
@@ -1447,8 +1444,6 @@ static int wma_peer_sta_kickout_event_handler(void *handle, u8 *event, u32 len)
 		return -EINVAL;
 	}
 
-	del_sta_ctx->is_tdls = false;
-	del_sta_ctx->vdev_id = vdev_id;
 	del_sta_ctx->staId = peer_id;
 	vos_mem_copy(del_sta_ctx->addr2, macaddr, IEEE80211_ADDR_LEN);
 	vos_mem_copy(del_sta_ctx->bssId, wma->interfaces[vdev_id].addr,
@@ -5332,12 +5327,6 @@ VOS_STATUS WDA_open(v_VOID_t *vos_context, v_VOID_t *os_ctx,
 		goto err_event_init;
 	}
 
-	vos_status = vos_event_init(&wma_handle->recovery_event);
-	if (vos_status != VOS_STATUS_SUCCESS) {
-		WMA_LOGP("%s: recovery event initialization failed", __func__);
-		goto err_event_init;
-	}
-
 	INIT_LIST_HEAD(&wma_handle->vdev_resp_queue);
 	adf_os_spinlock_init(&wma_handle->vdev_respq_lock);
 	adf_os_spinlock_init(&wma_handle->vdev_detach_lock);
@@ -6359,7 +6348,7 @@ static ol_txrx_vdev_handle wma_vdev_attach(tp_wma_handle wma_handle,
 		(struct sAniSirGlobal*)vos_get_context(VOS_MODULE_ID_PE,
 						      wma_handle->vos_context);
 	tANI_U32 cfg_val;
-        tANI_U16 val16;
+    tANI_U16 val16;
 	int ret;
 	tSirMacHTCapabilityInfo *phtCapInfo;
 
@@ -6474,12 +6463,6 @@ static ol_txrx_vdev_handle wma_vdev_attach(tp_wma_handle wma_handle,
 					self_sta_req->sessionId);
 		}
 	}
-	ret = wmi_unified_vdev_set_param_send(wma_handle->wmi_handle,
-					      self_sta_req->sessionId,
-					      WMI_VDEV_PARAM_DISCONNECT_TH,
-					      self_sta_req->pkt_err_disconn_th);
-	if (ret)
-		WMA_LOGE("Failed to set WMI_VDEV_PARAM_DISCONNECT_TH");
 
 	if (wlan_cfgGetInt(mac, WNI_CFG_RTS_THRESHOLD,
 			&cfg_val) == eSIR_SUCCESS) {
@@ -9415,12 +9398,6 @@ static VOS_STATUS wma_vdev_start(tp_wma_handle wma,
 	WLAN_PHY_MODE chanmode;
 	u_int8_t *buf_ptr;
 	struct wma_txrx_node *intr = wma->interfaces;
-	tpAniSirGlobal pmac = NULL;
-	struct ath_dfs *dfs;
-
-	pmac = (tpAniSirGlobal)
-		vos_get_context(VOS_MODULE_ID_PE, wma->vos_context);
-	dfs = (struct ath_dfs *)wma->dfs_ic->ic_dfs;
 
 	WMA_LOGD("%s: Enter isRestart=%d vdev=%d", __func__, isRestart,req->vdev_id);
 	len = sizeof(*cmd) + sizeof(wmi_channel) +
@@ -9540,8 +9517,6 @@ static VOS_STATUS wma_vdev_start(tp_wma_handle wma,
 				wma_dfs_configure_channel(wma->dfs_ic,chan,chanmode,req);
 
 			wma_unified_dfs_phyerr_filter_offload_enable(wma);
-			dfs->disable_dfs_ch_switch =
-				pmac->sap.SapDfsInfo.disable_dfs_ch_switch;
 		}
 	}
 
@@ -11054,24 +11029,6 @@ static int wmi_crash_inject(wmi_unified_t wmi_handle, u_int32_t type,
 	}
 
 	return ret;
-}
-
-/**
- * wma_crash_inject() - sends command to FW to simulate crash
- * @wma_handle:         pointer of WMA context
- * @type:               subtype of the command
- * @delay_time_ms:      time in milliseconds for FW to delay the crash
- *
- * This function will send a command to FW in order to simulate different
- * kinds of FW crashes.
- *
- * Return: 0 for success or reasons for failure
- */
-
-int wma_crash_inject(tp_wma_handle wma_handle, uint32_t type,
-			uint32_t delay_time_ms)
-{
-	return wmi_crash_inject(wma_handle->wmi_handle, type, delay_time_ms);
 }
 
 static int32_t wmi_unified_set_sta_ps_param(wmi_unified_t wmi_handle,
@@ -16142,10 +16099,18 @@ static VOS_STATUS wma_pno_start(tp_wma_handle wma, tpSirPNOScanReq pno)
 
 	/* Copy scan interval */
 	if (pno->scanTimers.ucScanTimersCount) {
+        //BEGIN MOT a19110 IKDREL3KK-2175 PNO Enhancement
 		cmd->fast_scan_period =
-		   WMA_SEC_TO_MSEC(pno->scanTimers.aTimerValues[0].uTimerValue);
-		cmd->slow_scan_period = cmd->fast_scan_period;
-		WMA_LOGD("Scan period : %d msec", cmd->slow_scan_period);
+			WMA_SEC_TO_MSEC(pno->scanTimers.aTimerValues[0].uTimerValue);
+		WMA_LOGD("Fast Scan period : %d msec", cmd->fast_scan_period);
+
+		cmd->fast_scan_max_cycles = pno->scanTimers.aTimerValues[0].uTimerRepeat;
+		WMA_LOGD("Fast Scan cycle : %d", cmd->fast_scan_max_cycles);
+
+		cmd->slow_scan_period =
+			WMA_SEC_TO_MSEC(pno->scanTimers.aTimerValues[1].uTimerValue);
+		WMA_LOGD("Slow Scan period : %d msec", cmd->slow_scan_period);
+        //END IKDREL3KK-2175
 	}
 
 	buf_ptr += sizeof(wmi_nlo_config_cmd_fixed_param);
@@ -17270,7 +17235,8 @@ int wma_enable_wow_in_fw(WMA_HANDLE handle)
 			wmi_get_pending_cmds(wma->wmi_handle));
 #ifdef CONFIG_CNSS
 		if (pMac->sme.enableSelfRecovery) {
-			vos_trigger_recovery();
+			vos_set_logp_in_progress(VOS_MODULE_ID_HIF, TRUE);
+			cnss_schedule_recovery_work();
 		} else {
 			VOS_BUG(0);
 		}
@@ -18255,7 +18221,9 @@ static VOS_STATUS wma_send_host_wakeup_ind_to_fw(tp_wma_handle wma)
 		if (!vos_is_logp_in_progress(VOS_MODULE_ID_HIF, NULL)) {
 #ifdef CONFIG_CNSS
 			if (pMac->sme.enableSelfRecovery) {
-				vos_trigger_recovery();
+				vos_set_logp_in_progress(VOS_MODULE_ID_HIF,
+							TRUE);
+				cnss_schedule_recovery_work();
 			} else {
 				VOS_BUG(0);
 			}
@@ -18375,6 +18343,8 @@ int wma_disable_wow_in_fw(WMA_HANDLE handle)
 	wma_set_wow_bus_suspend(wma, 0);
 	/* Unpause the vdev as we are resuming */
 	wma_unpause_vdev(wma);
+
+	vos_wake_lock_timeout_acquire(&wma->wow_wake_lock, 2000);
 
 	return ret;
 }
@@ -24258,7 +24228,6 @@ VOS_STATUS wma_close(v_VOID_t *vos_ctx)
 	vos_event_destroy(&wma_handle->target_suspend);
 	vos_event_destroy(&wma_handle->wma_resume_event);
 	vos_event_destroy(&wma_handle->wow_tx_complete);
-	vos_event_destroy(&wma_handle->recovery_event);
 	wma_cleanup_vdev_resp(wma_handle);
 	for(idx = 0; idx < wma_handle->num_mem_chunks; ++idx) {
 		adf_os_mem_free_consistent(
@@ -25339,9 +25308,7 @@ VOS_STATUS WDA_TxPacket(void *wma_context, void *tx_frame, u_int16_t frmLen,
 			adf_nbuf_unmap_single(pdev->osdev, skb, ADF_OS_DMA_TO_DEVICE);
 			/* Call Download Cb so that umac can free the buffer */
 			if (tx_frm_download_comp_cb)
-				tx_frm_download_comp_cb(wma_handle->mac_context,
-						tx_frame,
-						WMA_TX_FRAME_BUFFER_FREE);
+				tx_frm_download_comp_cb(wma_handle->mac_context, tx_frame, 1);
 			wma_handle->umac_data_ota_ack_cb = NULL;
 			wma_handle->last_umac_data_nbuf = NULL;
 			return VOS_STATUS_E_FAILURE;
@@ -25349,9 +25316,7 @@ VOS_STATUS WDA_TxPacket(void *wma_context, void *tx_frame, u_int16_t frmLen,
 
 		/* Call Download Callback if passed */
 		if (tx_frm_download_comp_cb)
-			tx_frm_download_comp_cb(wma_handle->mac_context,
-						tx_frame,
-						WMA_TX_FRAME_BUFFER_NO_FREE);
+			tx_frm_download_comp_cb(wma_handle->mac_context, tx_frame, 0);
 
 		return VOS_STATUS_SUCCESS;
 	}
@@ -25441,13 +25406,9 @@ VOS_STATUS WDA_TxPacket(void *wma_context, void *tx_frame, u_int16_t frmLen,
 
 	/*
 	 * Failed to send Tx Mgmt Frame
+	 * Return Failure so that umac can freeup the buf
 	 */
 	if (status) {
-	/* Call Download Cb so that umac can free the buffer */
-		if (tx_frm_download_comp_cb)
-			tx_frm_download_comp_cb(wma_handle->mac_context,
-						tx_frame,
-						WMA_TX_FRAME_BUFFER_FREE);
 		WMA_LOGP("%s: Failed to send Mgmt Frame", __func__);
 		goto error;
 	}
@@ -25487,8 +25448,7 @@ VOS_STATUS WDA_TxPacket(void *wma_context, void *tx_frame, u_int16_t frmLen,
 		 * callback once the frame is successfully
 		 * given to txrx module
 		 */
-		tx_frm_download_comp_cb(wma_handle->mac_context, tx_frame,
-					WMA_TX_FRAME_BUFFER_NO_FREE);
+		tx_frm_download_comp_cb(wma_handle->mac_context, tx_frame, 0);
 	}
 
 	return VOS_STATUS_SUCCESS;
@@ -26993,7 +26953,6 @@ int wma_dfs_indicate_radar(struct ieee80211com *ic,
 	struct wma_dfs_radar_indication *radar_event;
 	struct hdd_dfs_radar_ind hdd_radar_event;
 	void *vos_context = vos_get_global_context(VOS_MODULE_ID_WDA, NULL);
-	tpAniSirGlobal pmac = NULL;
 
 	wma = (tp_wma_handle) vos_get_context(VOS_MODULE_ID_WDA, vos_context);
 
@@ -27004,9 +26963,6 @@ int wma_dfs_indicate_radar(struct ieee80211com *ic,
 	}
 
 	hdd_ctx = vos_get_context(VOS_MODULE_ID_HDD,wma->vos_context);
-	pmac = (tpAniSirGlobal)
-		vos_get_context(VOS_MODULE_ID_PE, wma->vos_context);
-
 	if (wma->dfs_ic != ic)
 	{
 		WMA_LOGE("%s:DFS- Invalid WMA handle",__func__);
@@ -27022,11 +26978,8 @@ int wma_dfs_indicate_radar(struct ieee80211com *ic,
 
 	/*
 	 * Do not post multiple Radar events on the same channel.
-	 * But, when DFS test mode is enabled, allow multiple dfs
-	 * radar events to be posted on the same channel.
 	 */
-	if ((ichan->ic_ieee  != (wma->dfs_ic->last_radar_found_chan)) ||
-	    ( pmac->sap.SapDfsInfo.disable_dfs_ch_switch == VOS_TRUE) )
+	if ( ichan->ic_ieee  != (wma->dfs_ic->last_radar_found_chan) )
 	{
 		wma->dfs_ic->last_radar_found_chan = ichan->ic_ieee;
 		/* Indicate the radar event to HDD to stop the netif Tx queues*/

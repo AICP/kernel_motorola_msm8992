@@ -5157,7 +5157,6 @@ __limProcessSmeAddStaSelfReq(tpAniSirGlobal pMac, tANI_U32 *pMsgBuf)
    pAddStaSelfParams->sessionId = pSmeReq->sessionId;
    pAddStaSelfParams->type = pSmeReq->type;
    pAddStaSelfParams->subType = pSmeReq->subType;
-   pAddStaSelfParams->pkt_err_disconn_th = pSmeReq->pkt_err_disconn_th;
 
    msg.type = SIR_HAL_ADD_STA_SELF_REQ;
    msg.reserved = 0;
@@ -6503,8 +6502,7 @@ limProcessSmeDfsCsaIeRequest(tpAniSirGlobal pMac, tANI_U32 *pMsg)
         /* Channel switch announcement needs to be included in beacon */
         psessionEntry->dfsIncludeChanSwIe = VOS_TRUE;
         psessionEntry->gLimChannelSwitch.switchCount = LIM_MAX_CSA_IE_UPDATES;
-        if (pMac->sap.SapDfsInfo.disable_dfs_ch_switch == VOS_FALSE)
-            psessionEntry->gLimChannelSwitch.switchMode = 1;
+        psessionEntry->gLimChannelSwitch.switchMode = 1;
 
         /* Validate if SAP is operating HT or VHT
          * mode and set the Channel Switch Wrapper

@@ -1226,11 +1226,6 @@ typedef enum
 #define CFG_ROAM_RESCAN_RSSI_DIFF_MAX                   (100)
 #define CFG_ROAM_RESCAN_RSSI_DIFF_DEFAULT               (5)
 
-#define CFG_DROPPED_PKT_DISCONNECT_TH_NAME      "gDroppedPktDisconnectTh"
-#define CFG_DROPPED_PKT_DISCONNECT_TH_MIN       (48)
-#define CFG_DROPPED_PKT_DISCONNECT_TH_MAX       (256)
-#define CFG_DROPPED_PKT_DISCONNECT_TH_DEFAULT   (96)
-
 /*
  * This parameter is the RSSI diff above neighbor lookup threshold, when
  * opportunistic scan should be triggered.
@@ -1587,13 +1582,13 @@ typedef enum
 #define CFG_ENABLE_FW_LOG_TYPE_DEFAULT    ( 3 )
 
 /* gFwDebugLogLevel takes values from enum DBGLOG_LOG_LVL,
- * make default value as DBGLOG_WARN to enable error and
- * warning logs by default.
+ * make default value as DBGLOG_ERR to enable error logs by
+ * default.
  */
 #define CFG_ENABLE_FW_DEBUG_LOG_LEVEL          "gFwDebugLogLevel"
 #define CFG_ENABLE_FW_DEBUG_LOG_LEVEL_MIN      ( 0 )
 #define CFG_ENABLE_FW_DEBUG_LOG_LEVEL_MAX      ( 255 )
-#define CFG_ENABLE_FW_DEBUG_LOG_LEVEL_DEFAULT  ( 4 )
+#define CFG_ENABLE_FW_DEBUG_LOG_LEVEL_DEFAULT  ( 5 )
 
 /* For valid values of log levels check enum DBGLOG_LOG_LVL and
  * for valid values of module ids check enum WLAN_MODULE_ID.
@@ -3452,7 +3447,6 @@ typedef struct
    bool                        enable_fw_hash_check;
 #endif
    uint16_t                    p2p_listen_defer_interval;
-   uint16_t                    pkt_err_disconn_th;
 } hdd_config_t;
 
 #ifdef WLAN_FEATURE_MBSSID
@@ -3575,6 +3569,9 @@ static __inline unsigned long utilMin( unsigned long a, unsigned long b )
   -------------------------------------------------------------------------*/
 VOS_STATUS hdd_parse_config_ini(hdd_context_t *pHddCtx);
 VOS_STATUS hdd_update_mac_config(hdd_context_t *pHddCtx);
+VOS_STATUS hdd_generate_random_mac_from_serialno(char *serialNo,
+                                            int serialength, char *computedMac);
+VOS_STATUS hdd_update_mac_serial(hdd_context_t *pHddCtx);
 VOS_STATUS hdd_set_sme_config( hdd_context_t *pHddCtx );
 VOS_STATUS hdd_set_sme_chan_list(hdd_context_t *hdd_ctx);
 v_BOOL_t hdd_update_config_dat ( hdd_context_t *pHddCtx );

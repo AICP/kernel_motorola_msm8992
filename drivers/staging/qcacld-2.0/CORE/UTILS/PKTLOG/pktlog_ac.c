@@ -341,6 +341,7 @@ pktlog_enable(struct ol_softc *scn, int32_t log_state)
 		return 0;
 
 	if (log_state != 0 && !pl_dev->tgt_pktlog_enabled) {
+
 		if (pl_info->buf == NULL) {
 			error = pktlog_alloc_buf(scn);
 

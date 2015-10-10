@@ -63,7 +63,7 @@
 extern int process_wma_set_command(int sessid, int paramid,
                                    int sval, int vpdev);
 #endif
-
+int dumpEnable;
 /* AR9888v1 WORKAROUND for EV#112367 */
 /* FIX THIS - remove this WAR when the bug is fixed */
 #define PEREGRINE_1_0_ZERO_LEN_PHY_ERR_WAR
@@ -812,52 +812,10 @@ htt_rx_print_rx_indication(
 
     msg_word = (u_int32_t *)adf_nbuf_data(rx_ind_msg);
 
-    adf_os_print("------------------HTT RX IND-----------------------------\n");
-    adf_os_print("alloc idx paddr %x (*vaddr) %d\n",
-                  pdev->rx_ring.alloc_idx.paddr,
-                  *pdev->rx_ring.alloc_idx.vaddr);
-
-    adf_os_print("sw_rd_idx msdu_payld %d msdu_desc %d\n",
-                 pdev->rx_ring.sw_rd_idx.msdu_payld,
-                 pdev->rx_ring.sw_rd_idx.msdu_desc);
-
-    adf_os_print("dbg_ring_idx %d\n", pdev->rx_ring.dbg_ring_idx);
-
-    adf_os_print("fill_level %d fill_cnt %d\n",pdev->rx_ring.fill_level,
-                  pdev->rx_ring.fill_cnt);
-
-    adf_os_print("initial msdu_payld %d curr mpdu range %d curr mpdu cnt %d\n",
-                  pdev->rx_ring.dbg_initial_msdu_payld,
-                  pdev->rx_ring.dbg_mpdu_range,
-                  pdev->rx_ring.dbg_mpdu_count);
-
-    /* Print the RX_IND contents */
-
-    adf_os_print("peer id %x RV %x FV %x ext_tid %x msg_type %x\n",
-                  HTT_RX_IND_PEER_ID_GET(*msg_word),
-                  HTT_RX_IND_REL_VALID_GET(*msg_word),
-                  HTT_RX_IND_FLUSH_VALID_GET(*msg_word),
-                  HTT_RX_IND_EXT_TID_GET(*msg_word),
-                  HTT_T2H_MSG_TYPE_GET(*msg_word));
-
-    adf_os_print("num_mpdu_ranges %x rel_seq_num_end %x rel_seq_num_start %x\n"
-                 " flush_seq_num_end %x flush_seq_num_start %x\n",
-                  HTT_RX_IND_NUM_MPDU_RANGES_GET(*(msg_word + 1)),
-                  HTT_RX_IND_REL_SEQ_NUM_END_GET(*(msg_word + 1)),
-                  HTT_RX_IND_REL_SEQ_NUM_START_GET(*(msg_word + 1)),
-                  HTT_RX_IND_FLUSH_SEQ_NUM_END_GET(*(msg_word + 1)),
-                  HTT_RX_IND_FLUSH_SEQ_NUM_START_GET(*(msg_word + 1)));
-
-    adf_os_print("fw_rx_desc_bytes %x\n", HTT_RX_IND_FW_RX_DESC_BYTES_GET(
-       *(msg_word + 2 + HTT_RX_PPDU_DESC_SIZE32)));
 
     /* receive MSDU desc for current frame */
     byte_offset = HTT_ENDIAN_BYTE_IDX_SWAP(HTT_RX_IND_FW_RX_DESC_BYTE_OFFSET +
                                             pdev->rx_ind_msdu_byte_idx);
-
-    adf_os_print("msdu byte idx %x msdu desc %x\n", pdev->rx_ind_msdu_byte_idx,
-                  HTT_RX_IND_FW_RX_DESC_BYTES_GET(
-                     *(msg_word + 2 + HTT_RX_PPDU_DESC_SIZE32)));
 
     num_mpdu_range = HTT_RX_IND_NUM_MPDU_RANGES_GET(*(msg_word + 1));
 
@@ -868,10 +826,7 @@ htt_rx_print_rx_indication(
         htt_rx_ind_mpdu_range_info(
             pdev, rx_ind_msg, mpdu_range, &status, &num_mpdus);
 
-        adf_os_print("mpdu_range %x status %x num_mpdus %x\n",
-                      pdev->rx_ind_msdu_byte_idx, status, num_mpdus);
     }
-    adf_os_print("---------------------------------------------------------\n");
 }
 #endif
 
@@ -937,6 +892,39 @@ htt_rx_amsdu_pop_ll(
          * than the descriptor.
          */
         adf_nbuf_pull_head(msdu, HTT_RX_STD_DESC_RESERVATION);
+    if ((dumpEnable == 1) && (msdu->data_len >= 16)){
+        VOS_TRACE(VOS_MODULE_ID_TXRX, VOS_TRACE_LEVEL_ERROR,
+                "\n%s: skbuff->data dump**************\n", __func__);
+        {
+        char *buf = (char *)msdu->data;
+        int i;
+
+        for (i=0; (i+15)< 64; i+=16)
+            {
+            VOS_TRACE(VOS_MODULE_ID_TXRX, VOS_TRACE_LEVEL_ERROR,
+                    "%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+                    buf[i],
+                    buf[i+1],
+                    buf[i+2],
+                    buf[i+3],
+                    buf[i+4],
+                    buf[i+5],
+                    buf[i+6],
+                    buf[i+7],
+                    buf[i+8],
+                    buf[i+9],
+                    buf[i+10],
+                    buf[i+11],
+                    buf[i+12],
+                    buf[i+13],
+                    buf[i+14],
+                    buf[i+15]);
+            }
+        }
+        VOS_TRACE(VOS_MODULE_ID_TXRX, VOS_TRACE_LEVEL_ERROR,
+                "data dump end**************\n");
+    }
+
 
         /*
          * Sanity check - confirm the HW is finished filling in the rx data.
@@ -1361,12 +1349,46 @@ htt_rx_amsdu_rx_in_order_pop_ll(
 
         msdu_count--;
 
+        if (dumpEnable == 1){
+            VOS_TRACE(VOS_MODULE_ID_TXRX, VOS_TRACE_LEVEL_ERROR,
+                    "\n%s: skbuff->data dump**************\n", __func__);
+        {
+            char *buf = (char *)msdu->data;
+            int i;
+
+            for (i=0; (i+15)< 64; i+=16)
+            {
+                VOS_TRACE(VOS_MODULE_ID_TXRX, VOS_TRACE_LEVEL_ERROR,
+                        "%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x\n",
+                        buf[i],
+                        buf[i+1],
+                        buf[i+2],
+                        buf[i+3],
+                        buf[i+4],
+                        buf[i+5],
+                        buf[i+6],
+                        buf[i+7],
+                        buf[i+8],
+                        buf[i+9],
+                        buf[i+10],
+                        buf[i+11],
+                        buf[i+12],
+                        buf[i+13],
+                        buf[i+14],
+                        buf[i+15]);
+           }
+        }
+        VOS_TRACE(VOS_MODULE_ID_TXRX, VOS_TRACE_LEVEL_ERROR,
+                "data dump end**************\n");
+        }
         if (adf_os_unlikely((*((u_int8_t *) &rx_desc->fw_desc.u.val)) &
                              FW_RX_DESC_MIC_ERR_M)) {
             u_int8_t tid =
                  HTT_RX_IN_ORD_PADDR_IND_EXT_TID_GET(*(u_int32_t *)rx_ind_data);
             u_int16_t peer_id =
                  HTT_RX_IN_ORD_PADDR_IND_PEER_ID_GET(*(u_int32_t *)rx_ind_data);
+            VOS_TRACE(VOS_MODULE_ID_TXRX, VOS_TRACE_LEVEL_INFO,
+                "%s- tid %d  peer_id %d\n", __func__, tid, peer_id);
             ol_rx_mic_error_handler(pdev->txrx_pdev, tid, peer_id, rx_desc, msdu);
 
             htt_rx_desc_frame_free(pdev, msdu);
@@ -2491,8 +2513,7 @@ htt_rx_attach(struct htt_pdev_t *pdev)
 
         /* Initialize the Rx refill retry timer */
         adf_os_timer_init(pdev->osdev, &pdev->rx_ring.refill_retry_timer,
-                          htt_rx_ring_refill_retry, (void *)pdev,
-                          ADF_DEFERRABLE_TIMER);
+                          htt_rx_ring_refill_retry, (void *)pdev);
 
         pdev->rx_ring.fill_cnt = 0;
 #ifdef DEBUG_DMA_DONE
