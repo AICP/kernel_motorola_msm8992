@@ -161,13 +161,33 @@ eHalStatus sme_ReleaseGlobalLock( tSmeStruct *psSme)
     return (status);
 }
 
+/**
+ * free_sme_cmds() - This function frees memory allocated for SME commands
+ * @mac_ctx:      Pointer to Global MAC structure
+ *
+ * This function frees memory allocated for SME commands
+ *
+ * @Return: void
+ */
+static void free_sme_cmds(tpAniSirGlobal mac_ctx)
+{
+	uint32_t idx;
+	if (NULL == mac_ctx->sme.pSmeCmdBufAddr)
+		return;
 
+	for (idx = 0; idx < mac_ctx->sme.totalSmeCmd; idx++)
+		vos_mem_free(mac_ctx->sme.pSmeCmdBufAddr[idx]);
+
+	vos_mem_free(mac_ctx->sme.pSmeCmdBufAddr);
+	mac_ctx->sme.pSmeCmdBufAddr = NULL;
+}
 
 static eHalStatus initSmeCmdList(tpAniSirGlobal pMac)
 {
     eHalStatus status;
     tSmeCmd *pCmd;
     tANI_U32 cmd_idx;
+    uint32_t sme_cmd_ptr_ary_sz;
     VOS_STATUS vosStatus;
     vos_timer_t* cmdTimeoutTimer = NULL;
 
@@ -192,21 +212,34 @@ static eHalStatus initSmeCmdList(tpAniSirGlobal pMac)
                                              &pMac->sme.smeCmdFreeList)))
        goto end;
 
-    pCmd = vos_mem_malloc(sizeof(tSmeCmd) * pMac->sme.totalSmeCmd);
-    if ( NULL == pCmd )
-       status = eHAL_STATUS_FAILURE;
-    else
-    {
-       status = eHAL_STATUS_SUCCESS;
+    /* following pointer contains array of pointers for tSmeCmd* */
+    sme_cmd_ptr_ary_sz = sizeof(void*) * pMac->sme.totalSmeCmd;
+    pMac->sme.pSmeCmdBufAddr = vos_mem_malloc(sme_cmd_ptr_ary_sz);
+    if (NULL == pMac->sme.pSmeCmdBufAddr) {
+        status = eHAL_STATUS_FAILURE;
+        goto end;
+    }
 
-       vos_mem_set(pCmd, sizeof(tSmeCmd) * pMac->sme.totalSmeCmd, 0);
-       pMac->sme.pSmeCmdBufAddr = pCmd;
-
-       for (cmd_idx = 0; cmd_idx < pMac->sme.totalSmeCmd; cmd_idx++)
-       {
-           csrLLInsertTail(&pMac->sme.smeCmdFreeList,
-                        &pCmd[cmd_idx].Link, LL_ACCESS_LOCK);
-       }
+    status = eHAL_STATUS_SUCCESS;
+    vos_mem_set(pMac->sme.pSmeCmdBufAddr, sme_cmd_ptr_ary_sz, 0);
+    for (cmd_idx = 0; cmd_idx < pMac->sme.totalSmeCmd; cmd_idx++) {
+       /*
+        * Since total size of all commands together can be huge chunk of
+        * memory, allocate SME cmd individually. These SME CMDs are moved
+        * between pending and active queues. And these freeing of these
+        * queues just manipulates the list but does not actually frees SME
+        * CMD pointers. Hence store each SME CMD address in the array,
+        * sme.pSmeCmdBufAddr. This will later facilitate freeing up of all
+        * SME CMDs with just a for loop.
+        */
+        pMac->sme.pSmeCmdBufAddr[cmd_idx] = vos_mem_malloc(sizeof(tSmeCmd));
+        if (NULL == pMac->sme.pSmeCmdBufAddr[cmd_idx]) {
+           status = eHAL_STATUS_FAILURE;
+           free_sme_cmds(pMac);
+           goto end;
+        }
+        pCmd = (tSmeCmd*)pMac->sme.pSmeCmdBufAddr[cmd_idx];
+        csrLLInsertTail(&pMac->sme.smeCmdFreeList, &pCmd->Link, LL_ACCESS_LOCK);
     }
 
     /* This timer is only to debug the active list command timeout */
@@ -233,6 +266,7 @@ static eHalStatus initSmeCmdList(tpAniSirGlobal pMac)
                 CSR_ACTIVE_LIST_CMD_TIMEOUT_VALUE;
         }
     }
+
 end:
     if (!HAL_STATUS_SUCCESS(status))
        smsLog(pMac, LOGE, "failed to initialize sme command list:%d\n",
@@ -317,7 +351,6 @@ void purgeSmeSessionCmdList(tpAniSirGlobal pMac, tANI_U32 sessionId,
 static eHalStatus freeSmeCmdList(tpAniSirGlobal pMac)
 {
     eHalStatus status = eHAL_STATUS_SUCCESS;
-
     purgeSmeCmdList(pMac);
     csrLLClose(&pMac->sme.smeCmdPendingList);
     csrLLClose(&pMac->sme.smeCmdActiveList);
@@ -338,11 +371,7 @@ static eHalStatus freeSmeCmdList(tpAniSirGlobal pMac)
         goto done;
     }
 
-    if(NULL != pMac->sme.pSmeCmdBufAddr)
-    {
-        vos_mem_free(pMac->sme.pSmeCmdBufAddr);
-        pMac->sme.pSmeCmdBufAddr = NULL;
-    }
+    free_sme_cmds(pMac);
 
     status = vos_lock_release(&pMac->sme.lkSmeGlobalLock);
     if(status != eHAL_STATUS_SUCCESS)
@@ -681,9 +710,16 @@ tANI_BOOLEAN smeProcessScanQueue(tpAniSirGlobal pMac)
 {
     tListElem *pEntry;
     tSmeCmd *pCommand;
-    tListElem *pSmeEntry;
-    tSmeCmd *pSmeCommand;
+    tListElem *pSmeEntry = NULL;
+    tSmeCmd *pSmeCommand = NULL;
     tANI_BOOLEAN status = eANI_BOOLEAN_TRUE;
+
+    if ((!csrLLIsListEmpty(&pMac->sme.smeCmdActiveList, LL_ACCESS_LOCK ))) {
+        pSmeEntry = csrLLPeekHead(&pMac->sme.smeCmdActiveList,
+                        LL_ACCESS_LOCK);
+        if (pSmeEntry)
+            pSmeCommand = GET_BASE_ADDR(pSmeEntry, tSmeCmd, Link) ;
+    }
 
     csrLLLock( &pMac->sme.smeScanCmdActiveList );
     if (csrLLIsListEmpty( &pMac->sme.smeScanCmdActiveList,
@@ -694,9 +730,17 @@ tANI_BOOLEAN smeProcessScanQueue(tpAniSirGlobal pMac)
         {
             pEntry = csrLLPeekHead( &pMac->sme.smeScanCmdPendingList,
                     LL_ACCESS_LOCK );
-            if (pEntry)
-            {
+            if (pEntry) {
                 pCommand = GET_BASE_ADDR( pEntry, tSmeCmd, Link );
+                if (pSmeCommand != NULL) {
+                    /* if there is an active SME command, do not process
+                     * the pending scan cmd
+                     */
+                    smsLog(pMac, LOGE, "SME scan cmd is pending on session %d",
+                           pSmeCommand->sessionId);
+                    status = eANI_BOOLEAN_FALSE;
+                    goto end;
+                }
                 //We cannot execute any command in wait-for-key state until setKey is through.
                 if (CSR_IS_WAIT_FOR_KEY( pMac, pCommand->sessionId))
                 {
@@ -707,30 +751,6 @@ tANI_BOOLEAN smeProcessScanQueue(tpAniSirGlobal pMac)
                                 pCommand->command);
                         status = eANI_BOOLEAN_FALSE;
                         goto end;
-                    }
-                }
-
-                if ((!csrLLIsListEmpty(&pMac->sme.smeCmdActiveList,
-                                       LL_ACCESS_LOCK )))
-                {
-                    pSmeEntry = csrLLPeekHead(&pMac->sme.smeCmdActiveList,
-                                              LL_ACCESS_LOCK);
-                    if (pEntry)
-                    {
-                       pSmeCommand = GET_BASE_ADDR(pEntry, tSmeCmd,
-                                                   Link) ;
-
-                       /* if scan is running on one interface and SME recei
-                          ves the next command on the same interface then
-                          dont the allow the command to be queued to
-                          smeCmdPendingList. If next scan is allowed on
-                          the same interface the CSR state machine will
-                          get screwed up. */
-                          if (pSmeCommand->sessionId == pCommand->sessionId)
-                          {
-                              status = eANI_BOOLEAN_FALSE;
-                              goto end;
-                          }
                     }
                 }
                 if ( csrLLRemoveEntry( &pMac->sme.smeScanCmdPendingList,
@@ -826,6 +846,25 @@ sme_process_cmd:
                 if( CSR_IS_WAIT_FOR_KEY( pMac, pCommand->sessionId ) &&
                     !CSR_IS_DISCONNECT_COMMAND( pCommand ) )
                 {
+                    if (CSR_IS_CLOSE_SESSION_COMMAND(pCommand)) {
+                        tSmeCmd *sme_cmd = NULL;
+
+                        smsLog(pMac, LOGE,
+                                 FL("SessionId %d: close session command issued while waiting for key, issue disconnect first"),
+                                 pCommand->sessionId);
+                        status = csr_prepare_disconnect_command(pMac,
+                                             pCommand->sessionId, &sme_cmd);
+                        if (HAL_STATUS_SUCCESS(status) && sme_cmd) {
+                            csrLLLock(&pMac->sme.smeCmdPendingList);
+                            csrLLInsertHead(&pMac->sme.smeCmdPendingList,
+                                              &sme_cmd->Link, LL_ACCESS_NOLOCK);
+                            pEntry = csrLLPeekHead(&pMac->sme.smeCmdPendingList,
+                                                      LL_ACCESS_NOLOCK);
+                            csrLLUnlock(&pMac->sme.smeCmdPendingList);
+                            goto sme_process_cmd;
+                        }
+                    }
+
                     if( !CSR_IS_SET_KEY_COMMAND( pCommand ) )
                     {
                         csrLLUnlock( &pMac->sme.smeCmdActiveList );
@@ -2776,6 +2815,12 @@ eHalStatus sme_ProcessMsg(tHalHandle hHal, vos_msg_t* pMsg)
                    vos_mem_free(pMsg->bodyptr);
                }
                break;
+          case eWNI_SME_GET_RSSI_IND:
+               if (pMac->sme.pget_rssi_ind_cb)
+                   pMac->sme.pget_rssi_ind_cb(pMsg->bodyptr,
+                                            pMac->sme.pget_rssi_cb_context);
+               vos_mem_free(pMsg->bodyptr);
+               break;
           case eWNI_SME_CSA_OFFLOAD_EVENT:
                if (pMsg->bodyptr)
                {
@@ -2983,6 +3028,9 @@ eHalStatus sme_Close(tHalHandle hHal)
    eHalStatus status = eHAL_STATUS_FAILURE;
    eHalStatus fail_status = eHAL_STATUS_SUCCESS;
    tpAniSirGlobal pMac = PMAC_STRUCT( hHal );
+
+   if (!pMac)
+       return eHAL_STATUS_FAILURE;
 
    /* Note: pSession will be invalid from here on, do not access */
    status = csrClose(pMac);
@@ -11363,6 +11411,63 @@ eHalStatus sme_GetLinkSpeed(tHalHandle hHal, tSirLinkSpeedInfo *lsReq, void *pls
     return(status);
 }
 #endif /* FEATURE_WLAN_TDLS */
+
+/**
+ * sme_get_rssi() - get station's rssi
+ * @hal: hal interface
+ * @req: get rssi request information
+ * @context: event handle context
+ * @pcallbackfn: callback function pointer
+ *
+ * This function will send WDA_GET_RSSI to WMA
+ *
+ * Return: 0 on success, otherwise error value
+ */
+eHalStatus sme_get_rssi(tHalHandle hal, struct sir_rssi_req req,
+			void *context,
+			void (*callbackfn)(struct sir_rssi_resp *param,
+						void *pcontext))
+{
+
+	eHalStatus          status    = eHAL_STATUS_SUCCESS;
+	VOS_STATUS          vosstatus = VOS_STATUS_SUCCESS;
+	tpAniSirGlobal      mac       = PMAC_STRUCT(hal);
+	vos_msg_t           vosmessage;
+
+	status = sme_AcquireGlobalLock(&mac->sme);
+	if (eHAL_STATUS_SUCCESS == status) {
+		if (NULL == callbackfn) {
+			VOS_TRACE(VOS_MODULE_ID_SME, VOS_TRACE_LEVEL_ERROR,
+				"%s: Indication Call back is NULL",
+				__func__);
+			sme_ReleaseGlobalLock(&mac->sme);
+			return eHAL_STATUS_FAILURE;
+		}
+
+		mac->sme.pget_rssi_ind_cb = callbackfn;
+		mac->sme.pget_rssi_cb_context = context;
+
+		/* serialize the req through MC thread */
+		vosmessage.bodyptr = vos_mem_malloc(sizeof(req));
+		if (NULL == vosmessage.bodyptr) {
+			VOS_TRACE(VOS_MODULE_ID_SME, VOS_TRACE_LEVEL_ERROR,
+				"%s: Memory allocation failed.", __func__);
+			sme_ReleaseGlobalLock(&mac->sme);
+			return eHAL_STATUS_E_MALLOC_FAILED;
+		}
+		vos_mem_copy(vosmessage.bodyptr, &req, sizeof(req));
+		vosmessage.type    = WDA_GET_RSSI;
+		vosstatus = vos_mq_post_message(VOS_MQ_ID_WDA, &vosmessage);
+		if (!VOS_IS_STATUS_SUCCESS(vosstatus)) {
+			VOS_TRACE(VOS_MODULE_ID_SME, VOS_TRACE_LEVEL_ERROR,
+				"%s: Post get rssi msg fail", __func__);
+			status = eHAL_STATUS_FAILURE;
+		}
+		sme_ReleaseGlobalLock(&mac->sme);
+	}
+	return status;
+}
+
 /* ---------------------------------------------------------------------------
     \fn sme_IsPmcBmps
     \API to Check if PMC state is BMPS.
@@ -12997,51 +13102,39 @@ eHalStatus sme_InitThermalInfo( tHalHandle hHal,
     return eHAL_STATUS_FAILURE;
 }
 
-/* ---------------------------------------------------------------------------
-    \fn sme_InitThermalInfo
-    \brief  SME API to set the thermal mitigation level
-    \param  hHal
-    \param  level : thermal mitigation level
-    \- return eHalStatus
-    -------------------------------------------------------------------------*/
+/**
+ * sme_SetThermalLevel() - SME API to set the thermal mitigation level
+ * hHal:	Handler to HAL
+ * level:	Thermal mitigation level
+ *
+ * Return: HAL status code
+ */
 eHalStatus sme_SetThermalLevel( tHalHandle hHal, tANI_U8 level )
 {
-    vos_msg_t msg;
-    tpAniSirGlobal pMac = PMAC_STRUCT(hHal);
-    u_int8_t *pLevel = vos_mem_malloc(sizeof(*pLevel));
+	vos_msg_t msg;
+	tpAniSirGlobal pMac = PMAC_STRUCT(hHal);
+	VOS_STATUS vosStatus = VOS_STATUS_SUCCESS;
 
-    pLevel = vos_mem_malloc(sizeof(*pLevel));
-    if (NULL == pLevel)
-    {
-       VOS_TRACE(VOS_MODULE_ID_SME, VOS_TRACE_LEVEL_ERROR,
-                 "%s: could not allocate pLevel", __func__);
-       return eHAL_STATUS_E_MALLOC_FAILED;
-    }
+	if (eHAL_STATUS_SUCCESS == sme_AcquireGlobalLock(&pMac->sme)) {
+		vos_mem_set(&msg, sizeof(msg), 0);
+		msg.type = WDA_SET_THERMAL_LEVEL;
+		msg.bodyval = level;
 
-    *pLevel = level;
-
-    if (eHAL_STATUS_SUCCESS == sme_AcquireGlobalLock(&pMac->sme))
-    {
-        msg.type = WDA_SET_THERMAL_LEVEL;
-        msg.reserved = 0;
-        msg.bodyptr = pLevel;
-
-        if (!VOS_IS_STATUS_SUCCESS(
-           vos_mq_post_message(VOS_MODULE_ID_WDA, &msg)))
-        {
-            VOS_TRACE( VOS_MODULE_ID_SME, VOS_TRACE_LEVEL_ERROR,
-                       "%s: Not able to post WDA_SET_THERMAL_LEVEL to WDA!",
-                       __func__);
-            vos_mem_free(pLevel);
-            sme_ReleaseGlobalLock(&pMac->sme);
-            return eHAL_STATUS_FAILURE;
-        }
-        sme_ReleaseGlobalLock(&pMac->sme);
-        return eHAL_STATUS_SUCCESS;
-    }
-    vos_mem_free(pLevel);
-    return eHAL_STATUS_FAILURE;
+		vosStatus =  vos_mq_post_message(VOS_MODULE_ID_WDA, &msg);
+		if (!VOS_IS_STATUS_SUCCESS(vosStatus)) {
+			VOS_TRACE(VOS_MODULE_ID_SME, VOS_TRACE_LEVEL_ERROR,
+				   "%s: Not able to post WDA_SET_THERMAL_LEVEL to WDA!",
+				   __func__);
+			sme_ReleaseGlobalLock(&pMac->sme);
+			return eHAL_STATUS_FAILURE;
+		}
+		sme_ReleaseGlobalLock(&pMac->sme);
+		return eHAL_STATUS_SUCCESS;
+	}
+	return eHAL_STATUS_FAILURE;
 }
+
+
 /* ---------------------------------------------------------------------------
    \fn sme_TxpowerLimit
    \brief SME API to set txpower limits

@@ -1901,6 +1901,7 @@ eHalStatus csrChangeDefaultConfigParam(tpAniSirGlobal pMac, tCsrConfigParam *pPa
 
         pMac->roam.configParam.isAmsduSupportInAMPDU = pParam->isAmsduSupportInAMPDU;
         pMac->roam.configParam.nSelect5GHzMargin = pParam->nSelect5GHzMargin;
+        pMac->roam.configParam.ignorePeerErpInfo = pParam->ignorePeerErpInfo;
         pMac->roam.configParam.isCoalesingInIBSSAllowed =
                                pParam->isCoalesingInIBSSAllowed;
 #ifdef FEATURE_WLAN_MCC_TO_SCC_SWITCH
@@ -1912,6 +1913,8 @@ eHalStatus csrChangeDefaultConfigParam(tpAniSirGlobal pMac, tCsrConfigParam *pPa
                                pParam->isRoamOffloadEnabled;
 #endif
         pMac->roam.configParam.obssEnabled = pParam->obssEnabled;
+        pMac->roam.configParam.sendDeauthBeforeCon =
+                               pParam->sendDeauthBeforeCon;
     }
 
     return status;
@@ -2048,6 +2051,7 @@ eHalStatus csrGetConfigParam(tpAniSirGlobal pMac, tCsrConfigParam *pParam)
 
         pParam->isAmsduSupportInAMPDU = pMac->roam.configParam.isAmsduSupportInAMPDU;
         pParam->nSelect5GHzMargin = pMac->roam.configParam.nSelect5GHzMargin;
+        pParam->ignorePeerErpInfo = pMac->roam.configParam.ignorePeerErpInfo;
 
         pParam->isCoalesingInIBSSAllowed =
                                 pMac->roam.configParam.isCoalesingInIBSSAllowed;
@@ -2065,6 +2069,8 @@ eHalStatus csrGetConfigParam(tpAniSirGlobal pMac, tCsrConfigParam *pParam)
 
         pParam->obssEnabled = pMac->roam.configParam.obssEnabled;
 
+        pParam->sendDeauthBeforeCon =
+                     pMac->roam.configParam.sendDeauthBeforeCon;
         status = eHAL_STATUS_SUCCESS;
     }
     return (status);
@@ -7550,6 +7556,34 @@ eHalStatus csrRoamProcessDisassocDeauth( tpAniSirGlobal pMac, tSmeCmd *pCommand,
     return (status);
 }
 
+/**
+ * csr_prepare_disconnect_command() - function to prepare disconnect command
+ * @mac: pointer to global mac structure
+ * @session_id: sme session index
+ * @sme_cmd: pointer to sme command being prepared
+ *
+ * Function to prepare internal sme disconnect command
+ * Return: eHAL_STATUS_SUCCESS on success else eHAL_STATUS_RESOURCES on failure
+ */
+
+eHalStatus csr_prepare_disconnect_command(tpAniSirGlobal mac,
+                                        tANI_U32 session_id, tSmeCmd **sme_cmd)
+{
+	tSmeCmd *command;
+
+	command = csrGetCommandBuffer(mac);
+	if (!command) {
+		smsLog(mac, LOGE, FL("fail to get command buffer"));
+		return eHAL_STATUS_RESOURCES;
+	}
+
+	command->command = eSmeCommandRoam;
+	command->sessionId = (tANI_U8)session_id;
+	command->u.roamCmd.roamReason = eCsrForcedDisassoc;
+
+	*sme_cmd = command;
+	return eHAL_STATUS_SUCCESS;
+}
 
 eHalStatus csrRoamIssueDisassociateCmd( tpAniSirGlobal pMac, tANI_U32 sessionId, eCsrRoamDisconnectReason reason )
 {
@@ -7857,6 +7891,33 @@ eHalStatus csrRoamSaveConnectedInfomation(tpAniSirGlobal pMac, tANI_U32 sessionI
     return (status);
 }
 
+
+static boolean is_disconnect_pending(tpAniSirGlobal pmac,
+				uint8_t sessionid)
+{
+	tListElem *entry = NULL;
+	tListElem *next_entry = NULL;
+	tSmeCmd *command = NULL;
+	bool disconnect_cmd_exist = false;
+
+	csrLLLock(&pmac->sme.smeCmdPendingList);
+	entry = csrLLPeekHead(&pmac->sme.smeCmdPendingList, LL_ACCESS_NOLOCK);
+	while (entry) {
+		next_entry = csrLLNext(&pmac->sme.smeCmdPendingList,
+					entry, LL_ACCESS_NOLOCK);
+
+		command = GET_BASE_ADDR(entry, tSmeCmd, Link);
+		if (command && CSR_IS_DISCONNECT_COMMAND(command) &&
+				command->sessionId == sessionid){
+			disconnect_cmd_exist = true;
+			break;
+		}
+		entry = next_entry;
+	}
+	csrLLUnlock(&pmac->sme.smeCmdPendingList);
+	return disconnect_cmd_exist;
+}
+
 static void csrRoamJoinRspProcessor( tpAniSirGlobal pMac, tSirSmeJoinRsp *pSmeJoinRsp )
 {
    tListElem *pEntry = NULL;
@@ -7898,6 +7959,7 @@ static void csrRoamJoinRspProcessor( tpAniSirGlobal pMac, tSirSmeJoinRsp *pSmeJo
    else
    {
         tANI_U32 roamId = 0;
+        bool is_dis_pending;
         //The head of the active list is the request we sent
         //Try to get back the same profile and roam again
         if(pCommand)
@@ -7916,7 +7978,14 @@ static void csrRoamJoinRspProcessor( tpAniSirGlobal pMac, tSirSmeJoinRsp *pSmeJo
             csrNeighborRoamIndicateConnect(pMac, pSmeJoinRsp->sessionId, VOS_STATUS_E_FAILURE);
         }
 #endif
-        if (pCommand && (pSession->join_bssid_count < CSR_MAX_BSSID_COUNT))
+        /*
+         * if userspace has issued disconnection,
+         * driver should not continue connecting
+         */
+        is_dis_pending = is_disconnect_pending(pMac, pSession->sessionId);
+
+        if (pCommand && (pSession->join_bssid_count < CSR_MAX_BSSID_COUNT) &&
+            !is_dis_pending)
         {
             if(CSR_IS_WDS_STA( &pCommand->u.roamCmd.roamProfile ))
             {
@@ -7947,6 +8016,10 @@ static void csrRoamJoinRspProcessor( tpAniSirGlobal pMac, tSirSmeJoinRsp *pSmeJo
           if (pSession->join_bssid_count >= CSR_MAX_BSSID_COUNT)
             VOS_TRACE(VOS_MODULE_ID_SME, VOS_TRACE_LEVEL_ERROR,
                FL("Excessive Join Request Failures"));
+
+          if (is_dis_pending)
+            VOS_TRACE(VOS_MODULE_ID_SME, VOS_TRACE_LEVEL_ERROR,
+               FL("disconnect is pending, complete roam"));
           pSession->join_bssid_count = 0;
           csrRoamComplete(pMac, eCsrNothingToJoin, NULL);
         }
@@ -11234,12 +11307,16 @@ eHalStatus csrRoamLostLink( tpAniSirGlobal pMac, tANI_U32 sessionId, tANI_U32 ty
         pDeauthIndMsg = (tSirSmeDeauthInd *)pSirMsg;
         pSession->roamingStatusCode = pDeauthIndMsg->statusCode;
         /* Convert into proper reason code */
-        pSession->joinFailStatusCode.reasonCode =
-                (pDeauthIndMsg->reasonCode == eSIR_BEACON_MISSED) ?
-                0 : pDeauthIndMsg->reasonCode;
-       /* cfg layer expects 0 as reason code if
-          the driver dosent know the reason code
-          eSIR_BEACON_MISSED is defined as locally */
+        if ((pDeauthIndMsg->reasonCode == eSIR_BEACON_MISSED) ||
+            (pDeauthIndMsg->reasonCode ==
+                 eSIR_MAC_DISASSOC_DUE_TO_INACTIVITY_REASON))
+            pSession->joinFailStatusCode.reasonCode = 0;
+        else
+            pSession->joinFailStatusCode.reasonCode = pDeauthIndMsg->reasonCode;
+        /*
+         * cfg layer expects 0 as reason code if the driver doesn't know the
+         * reason code eSIR_BEACON_MISSED is defined as locally
+         */
     }
     else
     {
@@ -11290,6 +11367,7 @@ eHalStatus csrRoamLostLink( tpAniSirGlobal pMac, tANI_U32 sessionId, tANI_U32 ty
                      sizeof(tSirMacAddr));
         roamInfo.staId = (tANI_U8)pDeauthIndMsg->staId;
         roamInfo.reasonCode = pDeauthIndMsg->reasonCode;
+        roamInfo.rxRssi = pDeauthIndMsg->rssi;
     }
     smsLog(pMac, LOGW, FL("roamInfo.staId (%d)"), roamInfo.staId);
 
@@ -15471,7 +15549,6 @@ static void csrRoamLinkDown(tpAniSirGlobal pMac, tANI_U32 sessionId)
         smsLog(pMac, LOGE, FL("  session %d not found "), sessionId);
         return;
     }
-
    //Only to handle the case for Handover on infra link
    if( eCSR_BSS_TYPE_INFRASTRUCTURE != pSession->connectedProfile.BSSType )
    {
@@ -16888,8 +16965,8 @@ eHalStatus csrRoamOffloadScan(tpAniSirGlobal pMac, tANI_U8 sessionId,
                         pRequestBuf->ConnectedNetwork.ChannelCache[
                                              num_channels++] = *ChannelList;
                     }
-                    ChannelList++;
                 }
+                ChannelList++;
             }
             pRequestBuf->ConnectedNetwork.ChannelCount = num_channels;
             pRequestBuf->ChannelCacheType = CHANNEL_LIST_STATIC;

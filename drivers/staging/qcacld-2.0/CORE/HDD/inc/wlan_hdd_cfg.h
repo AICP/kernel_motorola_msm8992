@@ -1226,10 +1226,15 @@ typedef enum
 #define CFG_ROAM_RESCAN_RSSI_DIFF_MAX                   (100)
 #define CFG_ROAM_RESCAN_RSSI_DIFF_DEFAULT               (5)
 
+/*
+ * This parameter is the continuous packets dropping threshold that will trigger
+ * kickout peer event from fw.
+ * MIN value will disable the kickout feature.
+ */
 #define CFG_DROPPED_PKT_DISCONNECT_TH_NAME      "gDroppedPktDisconnectTh"
-#define CFG_DROPPED_PKT_DISCONNECT_TH_MIN       (48)
-#define CFG_DROPPED_PKT_DISCONNECT_TH_MAX       (256)
-#define CFG_DROPPED_PKT_DISCONNECT_TH_DEFAULT   (96)
+#define CFG_DROPPED_PKT_DISCONNECT_TH_MIN       (0)
+#define CFG_DROPPED_PKT_DISCONNECT_TH_MAX       (1024)
+#define CFG_DROPPED_PKT_DISCONNECT_TH_DEFAULT   (512)
 
 /*
  * This parameter is the RSSI diff above neighbor lookup threshold, when
@@ -1354,6 +1359,18 @@ typedef enum
 #define CFG_ENABLE_FW_HASH_CHECK_MIN           ( 0 )
 #define CFG_ENABLE_FW_HASH_CHECK_MAX           ( 1 )
 #define CFG_ENABLE_FW_HASH_CHECK_DEFAULT       ( 1 )
+#endif
+
+#ifdef FEATURE_RUNTIME_PM
+#define CFG_ENABLE_RUNTIME_PM                  "gRuntimePM"
+#define CFG_ENABLE_RUNTIME_PM_MIN              ( 0 )
+#define CFG_ENABLE_RUNTIME_PM_MAX              ( 1 )
+#define CFG_ENABLE_RUNTIME_PM_DEFAULT          ( 0 )
+
+#define CFG_RUNTIME_PM_AUTO_NAME               "gRuntimePMDelay"
+#define CFG_RUNTIME_PM_AUTO_MIN                ( 100 )
+#define CFG_RUNTIME_PM_AUTO_MAX                ( 10000 )
+#define CFG_RUNTIME_PM_AUTO_DEFAULT            ( 500 )
 #endif
 
 #define CFG_ENABLE_HOST_NSOFFLOAD_NAME         "hostNSOffload"
@@ -2586,9 +2603,14 @@ This feature requires the dependent cfg.ini "gRoamPrefer5GHz" set to 1 */
 
 #define CFG_RA_RATE_LIMIT_INTERVAL_NAME            "gRArateLimitInterval"
 #define CFG_RA_RATE_LIMIT_INTERVAL_MIN             (60)
-#define CFG_RA_RATE_LIMIT_INTERVAL_MAX             (300)
+#define CFG_RA_RATE_LIMIT_INTERVAL_MAX             (3600)
 #define CFG_RA_RATE_LIMIT_INTERVAL_DEFAULT         (60)/*60 SEC*/
 #endif
+
+#define CFG_IGNORE_PEER_ERP_INFO_NAME      "gIgnorePeerErpInfo"
+#define CFG_IGNORE_PEER_ERP_INFO_MIN       ( 0 )
+#define CFG_IGNORE_PEER_ERP_INFO_MAX       ( 1 )
+#define CFG_IGNORE_PEER_ERP_INFO_DEFAULT   ( 0 )
 
 #define CFG_INITIAL_DWELL_TIME_NAME            "gInitialDwellTime"
 #define CFG_INITIAL_DWELL_TIME_DEFAULT         (0)
@@ -2729,7 +2751,7 @@ This feature requires the dependent cfg.ini "gRoamPrefer5GHz" set to 1 */
 #define CFG_WLAN_LOGGING_FE_CONSOLE_SUPPORT_NAME    "wlanLoggingFEToConsole"
 #define CFG_WLAN_LOGGING_FE_CONSOLE_SUPPORT_ENABLE  ( 1 )
 #define CFG_WLAN_LOGGING_FE_CONSOLE_SUPPORT_DISABLE ( 0 )
-#define CFG_WLAN_LOGGING_FE_CONSOLE_SUPPORT_DEFAULT ( 0 )
+#define CFG_WLAN_LOGGING_FE_CONSOLE_SUPPORT_DEFAULT ( 1 )
 
 /* Number of buffers to be used for WLAN logging */
 #define CFG_WLAN_LOGGING_NUM_BUF_NAME               "wlanLoggingNumBuf"
@@ -2822,6 +2844,15 @@ This feature requires the dependent cfg.ini "gRoamPrefer5GHz" set to 1 */
 #define CFG_ENABLE_DEAUTH_TO_DISASSOC_MAP_MAX     ( 1 )
 #define CFG_ENABLE_DEAUTH_TO_DISASSOC_MAP_DEFAULT ( 0 )
 
+/*
+ * If last disconnection was due to HB failure and we reconnect
+ * to same AP next time, send Deauth before starting connection
+ */
+#define CFG_ENABLE_DEAUTH_BEFORE_CONNECTION                  "gSendDeauthBeforeCon"
+#define CFG_ENABLE_DEAUTH_BEFORE_CONNECTION_MIN              (0)
+#define CFG_ENABLE_DEAUTH_BEFORE_CONNECTION_MAX              (1)
+#define CFG_ENABLE_DEAUTH_BEFORE_CONNECTION_DEFAULT          (0)
+
 #define CFG_ENABLE_MAC_ADDR_SPOOFING               "gEnableMacAddrSpoof"
 #define CFG_ENABLE_MAC_ADDR_SPOOFING_MIN           (0)
 #define CFG_ENABLE_MAC_ADDR_SPOOFING_MAX           (1)
@@ -2841,10 +2872,20 @@ This feature requires the dependent cfg.ini "gRoamPrefer5GHz" set to 1 */
 #define CFG_INFORM_BSS_RSSI_RAW_MAX                (1)
 #define CFG_INFORM_BSS_RSSI_RAW_DEFAULT            (1)
 
-#define CFG_P2P_LISTEN_DEFER_INTERVAL_NAME        "gP2PListenDeferInterval"
-#define CFG_P2P_LISTEN_DEFER_INTERVAL_MIN         (100)
-#define CFG_P2P_LISTEN_DEFER_INTERVAL_MAX         (200)
-#define CFG_P2P_LISTEN_DEFER_INTERVAL_DEFAULT     (100)
+#define CFG_TX_CHAIN_MASK_CCK          "gCckChainMaskEnable"
+#define CFG_TX_CHAIN_MASK_CCK_MIN      (0)
+#define CFG_TX_CHAIN_MASK_CCK_MAX      (1)
+#define CFG_TX_CHAIN_MASK_CCK_DEFAULT  (0)
+
+#define CFG_TX_CHAIN_MASK_1SS       "gTxChainMask1ss"
+#define CFG_TX_CHAIN_MASK_1SS_MIN      (0)
+#define CFG_TX_CHAIN_MASK_1SS_MAX      (3)
+#define CFG_TX_CHAIN_MASK_1SS_DEFAULT  (1)
+
+#define CFG_SELF_GEN_FRM_PWR        "gSelfGenFrmPwr"
+#define CFG_SELF_GEN_FRM_PWR_MIN      (0)
+#define CFG_SELF_GEN_FRM_PWR_MAX      (0xffff)
+#define CFG_SELF_GEN_FRM_PWR_DEFAULT  (0)
 
 /*---------------------------------------------------------------------------
   Type declarations
@@ -3107,6 +3148,12 @@ typedef struct
    v_U8_t                      mcastBcastFilterSetting;
    v_BOOL_t                    fhostArpOffload;
    v_BOOL_t                    ssdp;
+
+#ifdef FEATURE_RUNTIME_PM
+   v_BOOL_t                    runtime_pm;
+   v_U32_t                     runtime_pm_delay;
+#endif
+
 #ifdef FEATURE_WLAN_RA_FILTERING
    v_BOOL_t                    IsRArateLimitEnabled;
    v_U16_t                     RArateLimitInterval;
@@ -3452,7 +3499,13 @@ typedef struct
    bool                        enable_fw_hash_check;
 #endif
    uint16_t                    p2p_listen_defer_interval;
+   v_BOOL_t                    ignorePeerErpInfo;
    uint16_t                    pkt_err_disconn_th;
+   v_BOOL_t                    sendDeauthBeforeCon;
+   bool                        tx_chain_mask_cck;
+   uint8_t                     tx_chain_mask_1ss;
+   uint16_t                    self_gen_frm_pwr;
+
 } hdd_config_t;
 
 #ifdef WLAN_FEATURE_MBSSID
@@ -3575,9 +3628,6 @@ static __inline unsigned long utilMin( unsigned long a, unsigned long b )
   -------------------------------------------------------------------------*/
 VOS_STATUS hdd_parse_config_ini(hdd_context_t *pHddCtx);
 VOS_STATUS hdd_update_mac_config(hdd_context_t *pHddCtx);
-VOS_STATUS hdd_generate_random_mac_from_serialno(char *serialNo,
-                                            int serialength, char *computedMac);
-VOS_STATUS hdd_update_mac_serial(hdd_context_t *pHddCtx);
 VOS_STATUS hdd_set_sme_config( hdd_context_t *pHddCtx );
 VOS_STATUS hdd_set_sme_chan_list(hdd_context_t *hdd_ctx);
 v_BOOL_t hdd_update_config_dat ( hdd_context_t *pHddCtx );

@@ -222,9 +222,6 @@ CONFIG_QCA_SINGLE_BINARY_SUPPORT := 0
 #Enable collecting target RAM dump after kernel panic
 CONFIG_TARGET_RAMDUMP_AFTER_KERNEL_PANIC := 1
 
-#Flag to enable/disable secure firmware feature
-CONFIG_FEATURE_SECURE_FIRMWARE := 0
-
 #Flag to enable Stats Ext implementation
 CONFIG_FEATURE_STATS_EXT := 1
 
@@ -1034,10 +1031,10 @@ CDEFINES += -DCONFIG_ATH_PCIE_MAX_PERF=0 -DCONFIG_ATH_PCIE_AWAKE_WHILE_DRIVER_LO
 CDEFINES += -DQCA_TX_HTT2_SUPPORT
 endif
 
+CDEFINES += -DDEBUG_RX_RING_BUFFER
+
 # enable the MAC Address auto-generation feature
 CDEFINES += -DWLAN_AUTOGEN_MACADDR_FEATURE
-
-CDEFINES += -DMOTO_UTAGS_MAC
 
 ifeq ($(CONFIG_WLAN_FEATURE_11W),y)
 CDEFINES += -DWLAN_FEATURE_11W
@@ -1263,7 +1260,7 @@ CDEFINES += -DTARGET_RAMDUMP_AFTER_KERNEL_PANIC
 endif
 
 #Enable/disable secure firmware feature
-ifeq ($(CONFIG_FEATURE_SECURE_FIRMWARE), 1)
+ifeq ($(CONFIG_CNSS_SECURE_FW), y)
 CDEFINES += -DFEATURE_SECURE_FIRMWARE
 endif
 
@@ -1281,6 +1278,10 @@ ifeq ($(CONFIG_PCI_MSM), y)
 CDEFINES += -DFEATURE_WLAN_D0WOW
 endif
 
+# Flag to enable bus auto suspend
+ifeq ($(CONFIG_BUS_AUTO_SUSPEND), y)
+CDEFINES += -DFEATURE_RUNTIME_PM
+endif
 # Some kernel include files are being moved.  Check to see if
 # the old version of the files are present
 
