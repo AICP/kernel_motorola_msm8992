@@ -11,7 +11,9 @@
 
 #include <linux/cpu.h>
 #include <linux/cpufreq.h>
+#include <linux/err.h>
 #include <linux/module.h>
+#include <linux/of.h>
 #include <linux/slab.h>
 #include <linux/sort.h>
 #include <linux/err.h>
@@ -438,6 +440,7 @@ static void cpufreq_powerstats_create(unsigned int cpu,
 	unsigned int alloc_size, i = 0, j = 0, ret = 0;
 	struct cpufreq_power_stats *powerstats;
 	struct device_node *cpu_node;
+	char device_path[16];
 
 	powerstats = kzalloc(sizeof(struct cpufreq_power_stats),
 			GFP_KERNEL);
@@ -465,7 +468,8 @@ static void cpufreq_powerstats_create(unsigned int cpu,
 	}
 	powerstats->state_num = j;
 
-	cpu_node = of_get_cpu_node(cpu, NULL);
+	snprintf(device_path, sizeof(device_path), "/cpus/cpu@%d", cpu);
+	cpu_node = of_find_node_by_path(device_path);
 	if (cpu_node) {
 		ret = of_property_read_u32_array(cpu_node, "current",
 				powerstats->curr, count);
@@ -507,6 +511,16 @@ static void create_all_freq_table(void)
 	if (!all_freq_table)
 		pr_warn("could not allocate memory for all_freq_table\n");
 	return;
+}
+
+static void free_all_freq_table(void)
+{
+	if (all_freq_table) {
+		kfree(all_freq_table->freq_table);
+		all_freq_table->freq_table = NULL;
+		kfree(all_freq_table);
+		all_freq_table = NULL;
+	}
 }
 
 static void add_all_freq_table(unsigned int freq)
@@ -572,7 +586,7 @@ static void cpufreq_allstats_create(unsigned int cpu,
 static int cpufreq_stat_notifier_policy(struct notifier_block *nb,
 		unsigned long val, void *data)
 {
-	int ret, count = 0, i;
+	int ret = 0, count = 0, i;
 	struct cpufreq_policy *policy = data;
 	struct cpufreq_frequency_table *table;
 	unsigned int cpu = policy->cpu;
@@ -697,6 +711,8 @@ static int __init cpufreq_stats_init(void)
 	if (ret)
 		return ret;
 
+	create_all_freq_table();
+
 	for_each_online_cpu(cpu)
 		cpufreq_stats_create_table(cpu);
 
@@ -707,6 +723,7 @@ static int __init cpufreq_stats_init(void)
 				CPUFREQ_POLICY_NOTIFIER);
 		for_each_online_cpu(cpu)
 			cpufreq_stats_free_table(cpu);
+		free_all_freq_table();
 		return ret;
 	}
 
