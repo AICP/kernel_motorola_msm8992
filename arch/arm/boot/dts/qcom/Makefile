@@ -277,7 +277,9 @@ dtb-$(CONFIG_ARCH_MSM8992) += msm8992-sim.dtb \
 endif # CONFIG_MMI_DEVICE_DTBS
 
 # Motorola DTB definitions
+ifneq ($(CONFIG_ARCH_MSM8992),y)
 dtb-$(CONFIG_ARCH_MSM8994) += msm8994-bunkerhill-p201.dtb
+endif
 
 ifeq ($(CONFIG_MMI_CLARK_DTB),y)
 dtb-$(CONFIG_ARCH_MSM8992) += msm8992-clark-p0.dtb
